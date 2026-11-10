@@ -605,7 +605,7 @@ export class ClaudeCodeApp implements Layer {
 /** A permission prompt or question, floating over the conversation. */
 class PromptLayer implements Layer {
   readonly paintOverBase = true;
-  readonly dimUnderneath = 0.45;
+  readonly dimUnderneath = 0.3;
   /** Stereo depth, nearer than the conversation (Faceclaw's own menus float at 4). */
   readonly depth = 4;
   choice = 0;
@@ -632,7 +632,7 @@ class PromptLayer implements Layer {
     const boxH = 14 + step * (1 + bodyLines.length + this.choices.length + 1 + draftLine) + 16;
     const bx = 24;
     const by = Math.max(4, height - boxH - this.app.inputTop() - 8);
-    image.fillRect(bx, by, boxW, boxH, 0);
+    image.fillRect(bx, by, boxW, boxH, 1); // 0 is transparent on a layer canvas; 1 is opaque and dark
     image.drawRect(bx, by, boxW, boxH, 200);
     let y = by + 10;
     font.drawText(image, bx + 14, y, truncateText(font, this.heading, inner), 255);
