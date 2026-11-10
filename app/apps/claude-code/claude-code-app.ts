@@ -14,7 +14,8 @@ import { getTerminusFont } from "../../graphics/bdffont";
 import { getDefaultSmallFont } from "../../graphics/ui-fonts";
 import { truncateText, wrapText } from "../../graphics/textwrap";
 import { getStringSetting, setStringSetting } from "../../native/settings-store";
-import { ConfigSettingString, textSettingMenuItem } from "../../ui/dashboard-settings";
+import { asrModelState, isAsrModelReady, onAsrModelStateChanged, startAsrModelDownload, type AsrModelId } from "../../native/asr-model";
+import { ConfigSettingString, textSettingMenuItem, voiceProviderSetting } from "../../ui/dashboard-settings";
 import type { InputEvent } from "../../ui/gestures";
 import type { Layer, LayerContext, LayerStack, PaintBelow } from "../../ui/layers";
 import type { MenuItem } from "../../ui/menu";
@@ -189,7 +190,37 @@ export class ClaudeCodeApp implements Layer {
     this.window?.requestRender();
   }
 
+  /** The on-device speech model the voice setting needs, if any. */
+  speechModel(): AsrModelId | null {
+    const provider = voiceProviderSetting.get();
+    if (provider === "onboard") return "moonshine";
+    if (provider === "onboard-whisper") return "whisper-base-en";
+    return null;
+  }
+
+  /** Fetches a missing on-device speech model (a reinstall deletes it), showing progress. */
+  ensureSpeechModel(): boolean {
+    const id = this.speechModel();
+    if (!id || isAsrModelReady(id)) return true;
+    if (asrModelState(id).status !== "downloading") {
+      startAsrModelDownload(id);
+      this.stopModelWatch();
+      this.stopModelWatch = onAsrModelStateChanged(id, (st) => {
+        const pct = st.totalBytes > 0 ? Math.floor((st.bytesDownloaded / st.totalBytes) * 100) : 0;
+        this.voiceNote = st.status === "downloading" ? `downloading the speech model ${pct}%` :
+          st.status === "ready" ? "speech model ready: hold to talk" : `speech model: ${st.status}`;
+        this.render();
+      });
+    }
+    this.voiceNote ||= "downloading the speech model...";
+    this.render();
+    return false;
+  }
+  private stopModelWatch: () => void = () => {};
+  voiceNote = "";
+
   start() {
+    this.ensureSpeechModel();
     this.spinTimer = setInterval(() => {
       if (this.busy()) {
         this.spin++;
@@ -201,6 +232,7 @@ export class ClaudeCodeApp implements Layer {
 
   stop() {
     this.stopFollow();
+    this.stopModelWatch();
     this.draft.cancel();
     clearInterval(this.spinTimer);
     clearTimeout(this.noteTimer);
@@ -349,6 +381,8 @@ export class ClaudeCodeApp implements Layer {
 
   startTalking() {
     if (this.draft.active) return;
+    if (!this.ensureSpeechModel()) return;
+    this.voiceNote = "";
     void this.draft.start();
   }
 
@@ -465,6 +499,9 @@ export class ClaudeCodeApp implements Layer {
     if (this.draft.active) {
       const t = this.draft.text || this.draft.status || "Listening...";
       input = [{ text: "❯ ", style: "promptMark" }, { text: tail(t, this.cols - 4), style: this.draft.text ? "prompt" : "dim" }];
+    } else if (this.voiceNote || this.draft.status) {
+      // why the last hold did nothing (no microphone, no speech, model download)
+      input = [{ text: "❯ ", style: "promptMark" }, { text: this.voiceNote || this.draft.status, style: "err" }];
     } else {
       const hint = !this.sessionId ? "hold to talk: your first prompt starts a session" : "hold to talk · tap: menu · slide: scroll";
       input = [{ text: "❯ ", style: "promptMark" }, { text: hint, style: "faint" }];

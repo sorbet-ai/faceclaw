@@ -86,7 +86,9 @@ function setup() {
   const load = loader({
     '@nativescript/core': nativescript,
     'native/settings-store': { getStringSetting: (k, d) => settings.get(k) ?? d, setStringSetting: (k, v) => settings.set(k, v) },
+    'native/asr-model': { asrModelState: () => ({ status: 'ready' }), isAsrModelReady: () => true, onAsrModelStateChanged: () => () => {}, startAsrModelDownload() {} },
     'ui/dashboard-settings': {
+      voiceProviderSetting: { get: () => 'onboard' },
       ConfigSettingString: class { constructor(o) { Object.assign(this, o); } get() { return settings.get(this.storageKey) ?? this.defaultValue; } set(v) { settings.set(this.storageKey, v); } displayValue() { return this.formatValue(this.get()); } },
       textSettingMenuItem: (s) => ({ label: s.label, onSelect() {} }),
     },
