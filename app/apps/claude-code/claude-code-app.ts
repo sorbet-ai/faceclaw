@@ -627,6 +627,13 @@ export class ClaudeCodeApp implements Layer {
   menuItems(): MenuItem[] {
     void this.refreshSessions().catch(() => {});
     const items: MenuItem[] = [];
+    // only when the open session has lost its machine (the live feed also retries on its own)
+    if (this.sessionId && !this.connected) {
+      items.push({ label: "Reconnect", onSelect: (ctx) => {
+        ctx.stack.clearToBase();
+        void this.open(this.sessionId, this.server ?? undefined).catch((e) => this.fail(e));
+      } });
+    }
     if (this.pendingBlock()) items.push({ label: "Answer prompt", onSelect: (ctx) => { ctx.stack.clearToBase(); this.syncPrompt(true); } });
     if (!this.follow) items.push({ label: "Go to latest", onSelect: (ctx) => { this.goLive(); ctx.stack.clearToBase(); } });
     if (this.busy() && this.sessionId) {
@@ -667,10 +674,6 @@ export class ClaudeCodeApp implements Layer {
         this.render();
       } },
       { label: "Machines", onSelect: (ctx) => ctx.stack.push(flatMenu("Machines", this.serverItems())) },
-      { label: "Reconnect", onSelect: (ctx) => {
-        ctx.stack.clearToBase();
-        void this.open(this.sessionId || undefined, this.server ?? undefined).catch((e) => this.fail(e));
-      } },
     ];
   }
 
