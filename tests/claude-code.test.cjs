@@ -51,10 +51,16 @@ function fakeServer() {
     emit(ev) { follower?.onEvent(ev); },
     api: {
       listSessions: async () => s.sessions,
-      history: async () => s.history,
+      history: async (_c, id) => ({ history: s.history, openElsewhere: id === 's1' ? s.elsewhere : undefined }),
+      ApiError: class extends Error { constructor(m, status, detail) { super(m); this.status = status; this.detail = detail; } },
       answerPermission: async (_c, sid, d) => { calls.push(['permission', sid, d]); },
       answerQuestion: async (_c, sid, a) => { calls.push(['question', sid, a]); },
-      sendPrompt: async (_c, sid, t) => { calls.push(['prompt', sid, t]); return { sessionId: sid || 'new1' }; },
+      sendPrompt: async (_c, sid, t, fork) => {
+        if (fork) { calls.push(['fork', sid, t]); return { sessionId: 'fork1' }; }
+        if (sid === 's1' && s.held) throw new s.api.ApiError('409', 409, `Open in ${s.held}. Close it there, or fork it here.`);
+        calls.push(['prompt', sid, t]);
+        return { sessionId: sid || 'new1' };
+      },
       interrupt: async (_c, sid) => { calls.push(['interrupt', sid]); },
       follow: (_c, sid, onEvent, onState) => { follower = { sid, onEvent }; setTimeout(() => onState(true)); return () => { follower = null; }; },
     },
@@ -232,6 +238,48 @@ test('hold to talk shows the words live; release floats a draft that sends after
     await tick(3200);
   }
   assert.equal(t.server.calls.filter((c) => c[0] === 'prompt').length, 1, 'cancelled drafts not sent');
+  t.app.stop();
+});
+
+test('a session open elsewhere is read only, refreshes, and forks on demand', async () => {
+  const t = setup();
+  t.app.start();
+  await tick(10);
+  t.stack.clearToBase();
+  t.server.elsewhere = 'VS Code';
+  t.server.held = 'VS Code';
+  await t.app.open('s1');
+  assert.equal(t.app.elsewhere, 'VS Code');
+  writePng('claude-code-elsewhere.png', t.paint());
+
+  // talking offers the fork instead of sending
+  await t.app.sendPrompt('carry on');
+  assert.equal(t.server.calls.length, 0, 'nothing sent to a held session');
+  assert.equal(t.stack.layers.length, 2, 'fork prompt up');
+  await t.input('click'); // "Fork and send"
+  await tick(10);
+  assert.deepEqual(t.server.calls.at(-1), ['fork', 's1', 'carry on']);
+  assert.equal(t.app.sessionId, 'fork1');
+  assert.equal(t.app.elsewhere, '');
+
+  // back on the held session: closing it there makes it writable here
+  await t.app.open('s1');
+  t.server.history = [...t.server.history, { role: 'user', text: 'typed in VS Code' }];
+  await tick(3200);
+  assert.match(JSON.stringify(t.app.conv.blocks), /typed in VS Code/, 'refreshed');
+  t.server.elsewhere = undefined;
+  t.server.held = undefined;
+  await tick(3200);
+  assert.equal(t.app.elsewhere, '');
+  await t.app.sendPrompt('now here');
+  assert.deepEqual(t.server.calls.at(-1), ['prompt', 's1', 'now here']);
+
+  // held since opening: the 409 turns it read only and offers the fork
+  t.server.held = 'a terminal';
+  await t.app.sendPrompt('again');
+  assert.equal(t.app.elsewhere, 'a terminal');
+  assert.equal(t.stack.layers.length, 2);
+  await t.input('double-click');
   t.app.stop();
 });
 

@@ -17,6 +17,15 @@ export interface SessionInfo {
   timestamp: string;
   cwd: string;
   status: string | null;
+  /** The client holding the session elsewhere (VS Code, a terminal); read only here. */
+  openElsewhere?: string;
+}
+
+/** A failed even-cc call; status is the HTTP status (0 = no answer). */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly detail: string) {
+    super(message);
+  }
 }
 
 async function call<T>(cfg: ServerConfig, path: string, body?: unknown): Promise<T> {
@@ -27,15 +36,23 @@ async function call<T>(cfg: ServerConfig, path: string, body?: unknown): Promise
     body: body === undefined ? undefined : JSON.stringify(body),
     timeoutMs: 15000,
   });
-  if (!r.ok) throw new Error(`${path}: HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
+  if (!r.ok) {
+    const text = (await r.text()).slice(0, 200);
+    let detail = text;
+    try {
+      detail = JSON.parse(text).error ?? text;
+    } catch {}
+    throw new ApiError(`${path}: HTTP ${r.status} ${text}`, r.status, detail);
+  }
   return r.json<T>();
 }
 
 export const listSessions = (cfg: ServerConfig) =>
   call<{ sessions: SessionInfo[] }>(cfg, "/api/sessions?provider=claude").then((r) => r.sessions);
 
+/** The transcript, and who else holds the session (open elsewhere = read only). */
 export const history = (cfg: ServerConfig, id: string) =>
-  call<{ history: HistoryItem[] }>(cfg, `/api/sessions/${encodeURIComponent(id)}/history?limit=200&provider=claude`).then((r) => r.history);
+  call<{ history: HistoryItem[]; openElsewhere?: string }>(cfg, `/api/sessions/${encodeURIComponent(id)}/history?limit=200&provider=claude`);
 
 export type PermissionDecision = "allow" | "allowAlways" | "deny";
 
@@ -45,9 +62,13 @@ export const answerPermission = (cfg: ServerConfig, sessionId: string, decision:
 export const answerQuestion = (cfg: ServerConfig, sessionId: string, answer: string) =>
   call(cfg, "/api/question-response", { sessionId, answer });
 
-/** sessionId "" starts a new session; the reply names it. */
-export const sendPrompt = (cfg: ServerConfig, sessionId: string, text: string) =>
-  call<{ sessionId: string }>(cfg, "/api/prompt", { sessionId, text, provider: "claude" });
+/**
+ * sessionId "" starts a new session; the reply names it. fork: carry the
+ * session on in a new one (for a session open elsewhere, which refuses
+ * prompts with 409).
+ */
+export const sendPrompt = (cfg: ServerConfig, sessionId: string, text: string, fork = false) =>
+  call<{ sessionId: string }>(cfg, "/api/prompt", { sessionId, text, provider: "claude", ...(fork ? { fork: true } : {}) });
 
 export const interrupt = (cfg: ServerConfig, sessionId: string) =>
   call(cfg, "/api/interrupt", { sessionId, provider: "claude" });

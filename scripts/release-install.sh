@@ -5,6 +5,8 @@
 # The key and its password live in ~/.faceclaw-release (outside the repo).
 # Run from Git Bash on Windows; the phone and watch need adb over Wi-Fi or USB.
 set -euo pipefail
+# Windows: with this set, cmd won't run gradlew.bat from the project folder
+unset NoDefaultCurrentDirectoryInExePath
 cd "$(dirname "$0")/.."
 KEYDIR="$(cygpath -m "$USERPROFILE" 2>/dev/null || echo "$HOME")/.faceclaw-release"
 KS="$KEYDIR/faceclaw-release.jks"

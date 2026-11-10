@@ -168,6 +168,9 @@ export class ClaudeCodeApp implements Layer {
   private spinTimer: ReturnType<typeof setInterval> | undefined;
   private noteTimer: ReturnType<typeof setTimeout> | undefined;
   private prompt: PromptLayer | null = null;
+  /** The client holding the open session elsewhere ("" = this app may write to it). */
+  elsewhere = "";
+  private elsewhereTimer: ReturnType<typeof setInterval> | undefined;
   private dismissed = ""; // the prompt the wearer hid with double tap
   private laidOutFor = "";
 
@@ -269,6 +272,7 @@ export class ClaudeCodeApp implements Layer {
 
   stop() {
     this.stopFollow();
+    this.watchElsewhere("");
     this.stopModelWatch();
     this.draft.cancel();
     clearInterval(this.spinTimer);
@@ -315,7 +319,9 @@ export class ClaudeCodeApp implements Layer {
     this.server = server ?? this.sessions.find((s) => s.id === sessionId)?.server ?? this.server;
     this.sessionId = sessionId;
     this.title = this.sessions.find((s) => s.id === sessionId)?.title ?? "";
-    this.conv = fromHistory(await api.history(this.cfg, sessionId));
+    const h = await api.history(this.cfg, sessionId);
+    this.conv = fromHistory(h.history);
+    this.watchElsewhere(h.openElsewhere ?? "", historySig(h.history));
     this.follow = true;
     this.fillOnLayout = true;
     this.laidOutFor = "";
@@ -335,8 +341,44 @@ export class ClaudeCodeApp implements Layer {
     });
   }
 
+  /**
+   * A session open elsewhere gets no live events here: re-read its
+   * transcript every few seconds until it closes there, then follow it.
+   */
+  private watchElsewhere(where: string, sig = "") {
+    clearInterval(this.elsewhereTimer);
+    this.elsewhereTimer = undefined;
+    this.elsewhere = where;
+    if (!where) return;
+    const sid = this.sessionId;
+    let busy = false;
+    this.elsewhereTimer = setInterval(() => {
+      if (busy) return;
+      busy = true;
+      api.history(this.cfg, sid).then((h) => {
+        if (sid !== this.sessionId || !this.elsewhere) return;
+        const now = historySig(h.history);
+        if (now !== sig) {
+          sig = now;
+          this.conv = fromHistory(h.history);
+          this.laidOutFor = "";
+        }
+        if (!h.openElsewhere) {
+          const was = this.elsewhere;
+          this.watchElsewhere("");
+          this.flash(`closed in ${was}`);
+          void this.open(sid).catch((e) => this.fail(e));
+          return;
+        }
+        this.elsewhere = h.openElsewhere;
+        this.render();
+      }, (e) => console.warn(`claude-code: refresh: ${e}`)).finally(() => { busy = false; });
+    }, ELSEWHERE_REFRESH_MS);
+  }
+
   newSession(server: EvenCcServer | null) {
     this.stopFollow();
+    this.watchElsewhere("");
     this.closePrompt();
     this.server = server;
     this.sessionId = "";
@@ -460,6 +502,10 @@ export class ClaudeCodeApp implements Layer {
   }
 
   async sendPrompt(text: string) {
+    if (this.elsewhere) {
+      this.offerFork(text);
+      return;
+    }
     this.follow = true;
     const fresh = !this.sessionId;
     if (fresh) this.conv.blocks.push({ kind: "prompt", text });
@@ -472,8 +518,35 @@ export class ClaudeCodeApp implements Layer {
         await this.open(r.sessionId);
       }
     } catch (e) {
+      if (e instanceof api.ApiError && e.status === 409) {
+        // opened elsewhere since: show it read only, offer the fork
+        const where = /Open in (.+?)\./.exec(e.detail)?.[1] ?? "another app";
+        this.watchElsewhere(where, "");
+        this.offerFork(text);
+        return;
+      }
       this.fail(e);
     }
+  }
+
+  /** The session is open elsewhere: carry it on in a new session here, or drop the prompt. */
+  offerFork(text: string) {
+    this.closePrompt();
+    const sid = this.sessionId;
+    const cfg = this.cfg;
+    const layer = new PromptLayer(this, `fork:${sid}`, `Open in ${this.elsewhere}`,
+      `Close it there to talk here, or fork: a new session that carries on from this one.\n"${text}"`, [
+        { label: "Fork and send", act: async () => {
+          const r = await api.sendPrompt(cfg, sid, text, true);
+          await this.refreshSessions().catch(() => []);
+          await this.open(r.sessionId, this.server ?? undefined);
+          this.flash("forked");
+        } },
+        { label: "Cancel", act: async () => {} },
+      ], false);
+    this.prompt = layer;
+    this.window.stack.push(layer);
+    this.render();
   }
 
   // ── layout and paint ────────────────────────────────────
@@ -580,7 +653,7 @@ export class ClaudeCodeApp implements Layer {
       // why the last hold did nothing (no microphone, no speech, model download)
       input = [{ text: "❯ ", style: "promptMark" }, { text: this.voiceNote || this.draft.status, style: "err" }];
     } else {
-      const hint = "hold to talk · tap for menu";
+      const hint = this.elsewhere ? `read only: open in ${this.elsewhere} · hold to fork` : "hold to talk · tap for menu";
       input = [{ text: "❯ ", style: "promptMark" }, { text: hint, style: "faint" }];
     }
     g.drawSpans(image, x0, inputY, input, this.cols);
@@ -748,7 +821,7 @@ export class ClaudeCodeApp implements Layer {
     for (const s of this.sessions.filter((s) => !server || s.server.url === server.url).slice(0, 40)) {
       const folder = s.cwd.split(/[\\/]/).filter(Boolean).pop() ?? "";
       items.push({
-        label: fitLabel(`${s.id === this.sessionId ? "✓ " : ""}${s.title || s.id.slice(0, 8)} · ${ago(s.timestamp)}${folder ? " · " + folder : ""}`),
+        label: fitLabel(`${s.id === this.sessionId ? "✓ " : ""}${s.title || s.id.slice(0, 8)} · ${s.openElsewhere ? "in " + s.openElsewhere : ago(s.timestamp)}${folder ? " · " + folder : ""}`),
         description: s.cwd,
         onSelect: (ctx: LayerContext) => {
           ctx.stack.clearToBase();
@@ -837,6 +910,15 @@ class PromptLayer implements Layer {
         return;
     }
   }
+}
+
+/** How often a session open elsewhere is re-read. */
+const ELSEWHERE_REFRESH_MS = 3000;
+
+/** Cheap change check for a transcript. */
+function historySig(items: { role: string; text: string }[]): string {
+  const last = items.at(-1);
+  return `${items.length}:${last?.role ?? ""}:${last?.text.length ?? 0}:${last?.text.slice(-40) ?? ""}`;
 }
 
 /** Seconds a finished voice prompt waits before it sends itself. */
