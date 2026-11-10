@@ -245,7 +245,7 @@ export class ClaudeCodeApp implements Layer {
     }
     if (!loadServers().length) {
       this.conv = emptyConversation();
-      this.conv.blocks.push({ kind: "meta", text: "No PCs yet. Run even-cc on your PC, then tap: Settings > PCs > Add a PC, and scan the QR code it prints." });
+      this.conv.blocks.push({ kind: "meta", text: "No machines yet. Run even-cc, then Settings > Machines > Add machine." });
       this.laidOutFor = "";
       this.render();
       return;
@@ -253,7 +253,7 @@ export class ClaudeCodeApp implements Layer {
     await this.refreshSessions();
     if (opening) {
       this.conv = emptyConversation();
-      this.conv.blocks.push({ kind: "meta", text: "Pick a session (tap: menu > Sessions)." });
+      this.conv.blocks.push({ kind: "meta", text: "Tap for the menu." });
       this.laidOutFor = "";
     }
     this.window.stack.clearToBase();
@@ -336,7 +336,7 @@ export class ClaudeCodeApp implements Layer {
     this.sessionId = "";
     this.title = "new session";
     this.conv = emptyConversation();
-    this.conv.blocks.push({ kind: "meta", text: "New session: hold to talk; your first prompt starts it." });
+    this.conv.blocks.push({ kind: "meta", text: "New session. Hold to talk." });
     this.connected = true;
     this.laidOutFor = "";
     this.render();
@@ -423,7 +423,7 @@ export class ClaudeCodeApp implements Layer {
   dismissPrompt(layer: PromptLayer) {
     this.dismissed = layer.key;
     this.closePrompt();
-    this.flash("prompt hidden: tap > Answer prompt");
+    this.flash("hidden · menu > Answer prompt");
   }
 
   // ── voice ───────────────────────────────────────────────
@@ -579,7 +579,7 @@ export class ClaudeCodeApp implements Layer {
       // why the last hold did nothing (no microphone, no speech, model download)
       input = [{ text: "❯ ", style: "promptMark" }, { text: this.voiceNote || this.draft.status, style: "err" }];
     } else {
-      const hint = !this.sessionId ? "hold to talk: your first prompt starts a session" : "hold to talk · tap: menu · slide: scroll";
+      const hint = "hold to talk · tap for menu";
       input = [{ text: "❯ ", style: "promptMark" }, { text: hint, style: "faint" }];
     }
     g.drawSpans(image, x0, inputY, input, this.cols);
@@ -666,7 +666,7 @@ export class ClaudeCodeApp implements Layer {
         ctx.stack.clearToBase();
         this.render();
       } },
-      { label: "PCs", onSelect: (ctx) => ctx.stack.push(flatMenu("PCs (add one: scan even-cc's QR)", this.serverItems())) },
+      { label: "Machines", onSelect: (ctx) => ctx.stack.push(flatMenu("Machines", this.serverItems())) },
       { label: "Reconnect", onSelect: (ctx) => {
         ctx.stack.clearToBase();
         void this.open(this.sessionId || undefined, this.server ?? undefined).catch((e) => this.fail(e));
@@ -677,10 +677,10 @@ export class ClaudeCodeApp implements Layer {
   /** Scans even-cc's QR code with the phone camera and adds that PC. */
   async scanToAdd() {
     if (!isQrScannerAvailable()) {
-      this.flash("no QR scanner on this phone");
+      this.flash("no QR scanner");
       return;
     }
-    this.flash("point the phone camera at even-cc's QR code");
+    this.flash("scan the even-cc QR code");
     let scanned: string | null;
     try {
       scanned = await scanQrCode();
@@ -694,7 +694,7 @@ export class ClaudeCodeApp implements Layer {
     }
     const result = addFromLink(scanned);
     if (!result) {
-      this.flash("that QR code isn't from even-cc");
+      this.flash("not an even-cc QR code");
       return;
     }
     this.flash(`added ${result.server.name}`);
@@ -702,14 +702,14 @@ export class ClaudeCodeApp implements Layer {
   }
 
   private serverItems(): MenuItem[] {
-    const add: MenuItem = { label: "+ Add a PC (scan its QR)", onSelect: (ctx: LayerContext) => { ctx.stack.clearToBase(); void this.scanToAdd(); } };
+    const add: MenuItem = { label: "Add machine", onSelect: (ctx: LayerContext) => { ctx.stack.clearToBase(); void this.scanToAdd(); } };
     const servers = loadServers();
     if (!servers.length) return [add];
     return [add, ...servers.map((server) => ({
       label: `${server.name}${this.offline.includes(server.name) ? " · offline" : ""}`,
       description: server.url,
       onSelect: (ctx: LayerContext) => ctx.stack.push(flatMenu(server.name, [
-        { label: `Remove ${server.name}`, onSelect: (pick: LayerContext) => {
+        { label: "Remove", onSelect: (pick: LayerContext) => {
           removeServer(server.url);
           pick.stack.clearToBase();
           this.flash(`removed ${server.name}`);
@@ -724,22 +724,22 @@ export class ClaudeCodeApp implements Layer {
    */
   sessionMenu(): MenuLayer {
     const servers = loadServers();
-    if (servers.length <= 1) return flatMenu("Claude Code sessions", this.serverSessionItems(servers[0] ?? null));
-    return flatMenu("Claude Code: pick a PC", servers.map((server) => {
+    if (servers.length <= 1) return flatMenu("Sessions", this.serverSessionItems(servers[0] ?? null));
+    return flatMenu("Machines", servers.map((server) => {
       const count = this.sessions.filter((s) => s.server.url === server.url).length;
       const offline = this.offline.includes(server.name);
       return {
         label: `${server.url === this.server?.url ? "✓ " : ""}${server.name} · ${offline ? "offline" : `${count} session${count === 1 ? "" : "s"}`}`,
-        onSelect: (ctx: LayerContext) => ctx.stack.push(flatMenu(`${server.name} sessions`, this.serverSessionItems(server))),
+        onSelect: (ctx: LayerContext) => ctx.stack.push(flatMenu(server.name, this.serverSessionItems(server))),
       };
     }));
   }
 
   /** One PC's sessions, newest first, "+ New session" on top. */
   private serverSessionItems(server: EvenCcServer | null): MenuItem[] {
-    const items: MenuItem[] = [{ label: "+ New session", onSelect: (ctx: LayerContext) => { ctx.stack.clearToBase(); this.newSession(server); } }];
+    const items: MenuItem[] = [{ label: "New session", onSelect: (ctx: LayerContext) => { ctx.stack.clearToBase(); this.newSession(server); } }];
     if (server && this.offline.includes(server.name)) {
-      items.push({ label: `${server.name} is offline (is even-cc running?)`, disabled: true, onSelect: () => {} });
+      items.push({ label: "Offline", disabled: true, onSelect: () => {} });
     }
     for (const s of this.sessions.filter((s) => !server || s.server.url === server.url).slice(0, 40)) {
       const folder = s.cwd.split(/[\\/]/).filter(Boolean).pop() ?? "";

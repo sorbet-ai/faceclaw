@@ -151,8 +151,8 @@ test('opens on the session list, New session first', async () => {
   t.app.start();
   await tick(10);
   const menu = t.stack.top();
-  assert.equal(menu.title, 'Claude Code sessions');
-  assert.equal(menu.items[0].label, '+ New session');
+  assert.equal(menu.title, 'Sessions');
+  assert.equal(menu.items[0].label, 'New session');
   assert.match(menu.items[1].label, /^even-cc · .* · even-cc$/);
   t.app.stop();
 });
@@ -331,12 +331,12 @@ test('with several PCs, the list picks a PC first, then that PC\'s sessions', as
     t.app.start();
     await tick(10);
     const pcs = t.stack.top();
-    assert.equal(pcs.title, 'Claude Code: pick a PC');
+    assert.equal(pcs.title, 'Machines');
     assert.equal(JSON.stringify(pcs.items.map((i) => i.label)), JSON.stringify(['mule · 1 session', 'mule (WSL) · 1 session']));
     pcs.items[1].onSelect({ stack: t.stack, actions: {} });
     const sessions = t.stack.top();
-    assert.equal(sessions.title, 'mule (WSL) sessions');
-    assert.equal(sessions.items[0].label, '+ New session');
+    assert.equal(sessions.title, 'mule (WSL)');
+    assert.equal(sessions.items[0].label, 'New session');
     assert.equal(sessions.items.length, 2, 'only that PC\'s session');
     sessions.items[1].onSelect({ stack: t.stack, actions: {} });
     await tick(10);

@@ -113,7 +113,7 @@ async function addEvenCcServer(link: string): Promise<void> {
     return;
   }
   const extras = [result.speech ? "voice" : "", result.terminal ? "terminal" : ""].filter(Boolean).join(" and ");
-  say(`Added ${result.server.name} to Claude Code${extras ? ` (with ${extras})` : ""}.`);
+  say(`Added ${result.server.name}${extras ? `, with ${extras}` : ""}.`);
   const { dashboardController } = await import("../g2/dashboard-controller");
   await dashboardController.openClaudeCode();
 }
