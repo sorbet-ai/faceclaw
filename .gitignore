@@ -76,3 +76,4 @@ apple-watch/build/
 apple-watch/Local.xcconfig
 App_Resources/iOS/watchapp/
 xcuserdata/
+app/apps/claude-code/core/defaults.ts

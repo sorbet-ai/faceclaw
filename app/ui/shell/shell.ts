@@ -507,11 +507,12 @@ class Shell {
     return this.conversations;
   }
 
-  async prepareChatVoiceCapture(): Promise<boolean> {
+  /** Ready a hold-to-talk window's own capture (AI Chat, Claude Code). */
+  async prepareChatVoiceCapture(windowId = "ai-chat"): Promise<boolean> {
     if (this.activeVoiceLayer || this.activeKeyboardLayer || this.voiceDialogPending) return false;
     const ready = (await this.config.prepareVoiceCapture?.()) ?? true;
     return ready && !this.activeVoiceLayer && !this.activeKeyboardLayer &&
-      this.stack.isAtBase() && this.isWindowFocused("ai-chat");
+      this.stack.isAtBase() && this.isWindowFocused(windowId);
   }
   private assistantLayer: AssistantLayer | null = null;
   private readonly assistantActivityListeners = new Set<(event: AssistantActivityEvent) => void>();
