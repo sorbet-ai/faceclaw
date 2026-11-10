@@ -157,6 +157,8 @@ export class ClaudeCodeApp implements Layer {
   server: EvenCcServer | null = null;
   /** PCs that didn't answer the last session refresh. */
   offline: string[] = [];
+  /** Account and usage per machine url, from the last refresh. */
+  machines = new Map<string, api.MachineInfo>();
   note = "";
   grid: Grid;
   cols = 80;
@@ -288,6 +290,9 @@ export class ClaudeCodeApp implements Layer {
   /** Sessions from every PC, newest first; PCs that don't answer go to offline. */
   async refreshSessions(): Promise<Session[]> {
     const servers = loadServers();
+    for (const server of servers) {
+      api.machineInfo({ base: server.url, token: server.token }).then((m) => this.machines.set(server.url, m), () => {});
+    }
     const results = await Promise.allSettled(servers.map((server) =>
       api.listSessions({ base: server.url, token: server.token }).then((list) => list.map((s) => ({ ...s, server })))));
     const all: Session[] = [];
@@ -802,13 +807,17 @@ export class ClaudeCodeApp implements Layer {
    */
   sessionMenu(): MenuLayer {
     const servers = loadServers();
-    if (servers.length <= 1) return flatMenu("Sessions", this.serverSessionItems(servers[0] ?? null), WIDE_MENU);
+    if (servers.length <= 1) {
+      const usage = servers[0] ? usageShort(this.machines.get(servers[0].url)) : "";
+      return flatMenu(usage ? `Sessions · ${usage}` : "Sessions", this.serverSessionItems(servers[0] ?? null), WIDE_MENU);
+    }
     return flatMenu("Machines", servers.map((server) => {
       const count = this.sessions.filter((s) => s.server.url === server.url).length;
       const offline = this.offline.includes(server.name);
+      const usage = usageShort(this.machines.get(server.url));
       return {
-        label: `${server.url === this.server?.url ? "✓ " : ""}${server.name} · ${offline ? "offline" : `${count} session${count === 1 ? "" : "s"}`}`,
-        onSelect: (ctx: LayerContext) => ctx.stack.push(flatMenu(server.name, this.serverSessionItems(server), WIDE_MENU)),
+        label: fitLabel(`${server.url === this.server?.url ? "✓ " : ""}${server.name} · ${offline ? "offline" : `${count} session${count === 1 ? "" : "s"}`}${usage && !offline ? " · " + usage : ""}`),
+        onSelect: (ctx: LayerContext) => ctx.stack.push(flatMenu(usage ? `${server.name} · ${usage}` : server.name, this.serverSessionItems(server), WIDE_MENU)),
       };
     }));
   }
@@ -830,6 +839,9 @@ export class ClaudeCodeApp implements Layer {
         },
       });
     }
+    // the account and when its limits reset, at the end (the list opens on New session)
+    const info = server ? this.machines.get(server.url) : undefined;
+    for (const line of machineLines(info)) items.push({ label: fitLabel(line), disabled: true, onSelect: () => {} });
     return items;
   }
 
@@ -911,6 +923,37 @@ class PromptLayer implements Layer {
         return;
     }
   }
+}
+
+/** "5h 21% · wk 24%", or "" without usage. */
+function usageShort(m: api.MachineInfo | undefined): string {
+  const w = m?.usage?.windows;
+  if (!w) return "";
+  const pct = (x: api.UsageWindow | undefined) => (x ? `${Math.round(x.utilization * 100)}%` : "");
+  return [w.five_hour && `5h ${pct(w.five_hour)}`, w.seven_day && `wk ${pct(w.seven_day)}`].filter(Boolean).join(" · ");
+}
+
+/** The account line and the limits' reset times, for the end of a machine's session list. */
+function machineLines(m: api.MachineInfo | undefined): string[] {
+  if (!m) return [];
+  const lines: string[] = [];
+  const a = m.account ?? {};
+  const who = [a.email, a.subscriptionType].filter(Boolean).join(" · ");
+  if (who) lines.push(who);
+  const w = m.usage?.windows;
+  if (w) {
+    const at = (x: api.UsageWindow) => {
+      const d = new Date(x.resetsAt * 1000);
+      const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      return d.getTime() - Date.now() < 20 * 3600 * 1000 ? time : `${d.toLocaleDateString([], { weekday: "short" })} ${time}`;
+    };
+    const resets = [w.five_hour && `5h resets ${at(w.five_hour)}`, w.seven_day && `wk resets ${at(w.seven_day)}`].filter(Boolean).join(" · ");
+    if (resets) lines.push(resets);
+    lines.push(`usage as of ${ago(m.usage!.at)}${m.usage!.isUsingOverage ? " · on extra usage" : ""}`);
+  } else {
+    lines.push("usage shows after the first turn here");
+  }
+  return lines;
 }
 
 /** How often a session open elsewhere is re-read. */

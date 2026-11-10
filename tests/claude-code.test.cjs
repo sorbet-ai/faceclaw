@@ -51,6 +51,7 @@ function fakeServer() {
     emit(ev) { follower?.onEvent(ev); },
     api: {
       listSessions: async () => s.sessions,
+      machineInfo: async () => s.machine ?? Promise.reject(new Error('old even-cc')),
       history: async (_c, id) => ({ history: s.history, openElsewhere: id === 's1' ? s.elsewhere : undefined }),
       ApiError: class extends Error { constructor(m, status, detail) { super(m); this.status = status; this.detail = detail; } },
       answerPermission: async (_c, sid, d) => { calls.push(['permission', sid, d]); },
@@ -280,6 +281,24 @@ test('a session open elsewhere is read only, refreshes, and forks on demand', as
   assert.equal(t.app.elsewhere, 'a terminal');
   assert.equal(t.stack.layers.length, 2);
   await t.input('double-click');
+  t.app.stop();
+});
+
+test('the session list shows the machine account and plan usage', async () => {
+  const t = setup();
+  const reset = Math.floor(Date.now() / 1000) + 3600;
+  t.server.machine = { name: 'mule', account: { email: 'me@example.com', subscriptionType: 'max' },
+    usage: { windows: { five_hour: { utilization: 0.21, resetsAt: reset }, seven_day: { utilization: 0.243, resetsAt: reset + 86400 * 3 } }, at: new Date().toISOString() } };
+  t.app.start();
+  await tick(10);
+  await t.app.refreshSessions();
+  await tick(10);
+  const menu = t.app.sessionMenu();
+  assert.equal(menu.title, 'Sessions · 5h 21% · wk 24%');
+  const labels = menu.items.map((i) => i.label);
+  assert.equal(labels[0], 'New session', 'opens on New session');
+  assert.ok(labels.includes('me@example.com · max'), labels.join(' | '));
+  assert.ok(labels.some((l) => /^5h resets .* · wk resets /.test(l)), labels.join(' | '));
   t.app.stop();
 });
 

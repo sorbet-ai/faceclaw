@@ -54,6 +54,22 @@ export const listSessions = (cfg: ServerConfig) =>
 export const history = (cfg: ServerConfig, id: string) =>
   call<{ history: HistoryItem[]; openElsewhere?: string }>(cfg, `/api/sessions/${encodeURIComponent(id)}/history?limit=200&provider=claude`);
 
+export interface UsageWindow {
+  utilization: number; // 0..1
+  resetsAt: number; // unix seconds
+  status?: string;
+}
+
+/** Who a machine runs Claude as, and its plan usage (as of its last turn). */
+export interface MachineInfo {
+  name: string;
+  account: { email?: string; organization?: string; subscriptionType?: string };
+  usage: { windows: Record<string, UsageWindow>; isUsingOverage?: boolean; at: string } | null;
+  version?: string;
+}
+
+export const machineInfo = (cfg: ServerConfig) => call<MachineInfo>(cfg, "/api/machine");
+
 export type PermissionDecision = "allow" | "allowAlways" | "deny";
 
 export const answerPermission = (cfg: ServerConfig, sessionId: string, decision: PermissionDecision) =>
