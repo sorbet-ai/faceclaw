@@ -323,18 +323,24 @@ test('scroll direction can be reversed in Settings', async () => {
   t.app.stop();
 });
 
-test('sessions from several PCs are merged, newest first, labelled by PC', async () => {
+test('with several PCs, the list picks a PC first, then that PC\'s sessions', async () => {
   const saved = servers;
   servers = [{ name: 'mule', url: 'http://pc:3456', token: 't' }, { name: 'mule (WSL)', url: 'http://pc:3457', token: 'u' }];
   try {
     const t = setup();
     t.app.start();
     await tick(10);
-    const menu = t.stack.top();
-    const labels = menu.items.map((i) => i.label);
-    assert.equal(labels[0], '+ New session');
-    assert.equal(labels.filter((l) => l.includes(' · mule')).length, 2, labels.join(' | '));
-    assert.ok(labels.some((l) => l.endsWith(' · mule (WSL)')), labels.join(' | '));
+    const pcs = t.stack.top();
+    assert.equal(pcs.title, 'Claude Code: pick a PC');
+    assert.equal(JSON.stringify(pcs.items.map((i) => i.label)), JSON.stringify(['mule · 1 session', 'mule (WSL) · 1 session']));
+    pcs.items[1].onSelect({ stack: t.stack, actions: {} });
+    const sessions = t.stack.top();
+    assert.equal(sessions.title, 'mule (WSL) sessions');
+    assert.equal(sessions.items[0].label, '+ New session');
+    assert.equal(sessions.items.length, 2, 'only that PC\'s session');
+    sessions.items[1].onSelect({ stack: t.stack, actions: {} });
+    await tick(10);
+    assert.equal(t.app.server.name, 'mule (WSL)');
     t.app.stop();
   } finally {
     servers = saved;

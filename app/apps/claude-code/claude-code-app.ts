@@ -257,7 +257,7 @@ export class ClaudeCodeApp implements Layer {
       this.laidOutFor = "";
     }
     this.window.stack.clearToBase();
-    this.window.stack.push(flatMenu("Claude Code sessions", this.sessionItems()));
+    this.window.stack.push(this.sessionMenu());
     this.render();
   }
 
@@ -733,14 +733,33 @@ export class ClaudeCodeApp implements Layer {
     }))];
   }
 
-  private sessionItems(): MenuItem[] {
-    const several = loadServers().length > 1;
-    const items: MenuItem[] = [{ label: "+ New session", onSelect: (ctx: LayerContext) => this.pickNewSession(ctx) }];
-    for (const name of this.offline) items.push({ label: `${name}: offline (is even-cc running?)`, disabled: true, onSelect: () => {} });
-    for (const s of this.sessions.slice(0, 40)) {
+  /**
+   * The session list. With one PC: its sessions. With several: the PCs
+   * first, each opening its own sessions (a two-step pick, never mixed).
+   */
+  sessionMenu(): MenuLayer {
+    const servers = loadServers();
+    if (servers.length <= 1) return flatMenu("Claude Code sessions", this.serverSessionItems(servers[0] ?? null));
+    return flatMenu("Claude Code: pick a PC", servers.map((server) => {
+      const count = this.sessions.filter((s) => s.server.url === server.url).length;
+      const offline = this.offline.includes(server.name);
+      return {
+        label: `${server.url === this.server?.url ? "✓ " : ""}${server.name} · ${offline ? "offline" : `${count} session${count === 1 ? "" : "s"}`}`,
+        onSelect: (ctx: LayerContext) => ctx.stack.push(flatMenu(`${server.name} sessions`, this.serverSessionItems(server))),
+      };
+    }));
+  }
+
+  /** One PC's sessions, newest first, "+ New session" on top. */
+  private serverSessionItems(server: EvenCcServer | null): MenuItem[] {
+    const items: MenuItem[] = [{ label: "+ New session", onSelect: (ctx: LayerContext) => { ctx.stack.clearToBase(); this.newSession(server); } }];
+    if (server && this.offline.includes(server.name)) {
+      items.push({ label: `${server.name} is offline (is even-cc running?)`, disabled: true, onSelect: () => {} });
+    }
+    for (const s of this.sessions.filter((s) => !server || s.server.url === server.url).slice(0, 40)) {
       const folder = s.cwd.split(/[\\/]/).filter(Boolean).pop() ?? "";
       items.push({
-        label: `${s.id === this.sessionId ? "✓ " : ""}${s.title || s.id.slice(0, 8)} · ${ago(s.timestamp)}${folder ? " · " + folder : ""}${several ? " · " + s.server.name : ""}`,
+        label: `${s.id === this.sessionId ? "✓ " : ""}${s.title || s.id.slice(0, 8)} · ${ago(s.timestamp)}${folder ? " · " + folder : ""}`,
         description: s.cwd,
         onSelect: (ctx: LayerContext) => {
           ctx.stack.clearToBase();
