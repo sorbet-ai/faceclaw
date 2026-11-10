@@ -797,7 +797,8 @@ export function createClaudeCodeWindow(options: InProcessAppOptions): InProcessW
   const win = createInProcessWindow({
     ...options,
     appId: APP_ID, windowId: APP_ID, title: "Claude Code", iconLetter: "C", icon: "terminal", closeable: true,
-    heightMode: "max", immersive: true,
+    // tall, not immersive: immersive drops the stereo shift the rest of the UI uses, a depth jump
+    heightMode: "max",
     baseLayer: app, holdToTalk: true,
     isVoiceCapturing: () => app.draft.active,
     onSystemMenuOpened: () => app.draft.cancel(),
