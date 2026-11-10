@@ -1,6 +1,11 @@
 import { NotificationsListLayer } from "../../ui/notifications";
 import { NOTIFICATIONS_SETTINGS_SECTION } from "../../ui/dashboard/settings-menus";
-import { onAndroidNotificationsChanged } from "../../native/notification-icons";
+import {
+  ALL_NOTIFICATIONS,
+  dismissNotification,
+  onAndroidNotificationsChanged,
+  readActiveNotifications,
+} from "../../native/notification-icons";
 import {
   createInProcessWindow,
   YieldAtRootLayer,
@@ -31,6 +36,13 @@ export function createNotificationsAppWindow(
     icon: "bell",
     closeable: true,
     menuItems: () => [{
+      label: "Clear all",
+      onSelect: (ctx) => {
+        ctx.stack.pop();
+        clearAllNotifications();
+        created.requestRender();
+      },
+    }, {
       label: "Settings",
       onSelect: (ctx) => {
         ctx.stack.pop();
@@ -49,4 +61,16 @@ export function createNotificationsAppWindow(
   });
   offNotificationsChanged = onAndroidNotificationsChanged(() => created.requestRender());
   return created;
+}
+
+/**
+ * Dismisses every notification the list shows. Ongoing ones (music, a
+ * foreground service) refuse, as on the phone.
+ */
+export function clearAllNotifications(): number {
+  let cleared = 0;
+  for (const n of readActiveNotifications(ALL_NOTIFICATIONS)) {
+    if (dismissNotification(n.key)) cleared++;
+  }
+  return cleared;
 }
