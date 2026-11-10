@@ -840,7 +840,7 @@ class PromptLayer implements Layer {
 }
 
 /** Seconds a finished voice prompt waits before it sends itself. */
-const SEND_COUNTDOWN = 3;
+const SEND_COUNTDOWN = 2;
 /** Stereo depth of the voice box: well in front of the conversation (Faceclaw's menus use 4). */
 const DRAFT_DEPTH = 8;
 
@@ -894,11 +894,11 @@ class DraftLayer implements Layer {
     const { width, height } = ctx.stack.getBaseSize();
     const font = getDefaultSmallFont();
     const step = font.lineHeight + 4;
-    const boxW = width - 64;
+    const boxW = Math.min(width - 96, 440); // a compact box, not the full width
     const inner = boxW - 32;
-    const lines = wrapText(font, this.text, inner).slice(-6);
-    const boxH = 24 + step * (lines.length + 2);
-    const bx = 32;
+    const lines = wrapText(font, this.text, inner).slice(-5);
+    const boxH = 20 + step * (lines.length + 2);
+    const bx = Math.floor((width - boxW) / 2);
     const by = Math.max(8, Math.floor((height - boxH) / 2));
     image.fillRect(bx, by, boxW, boxH, 1); // 0 is transparent on a layer canvas
     image.drawRect(bx, by, boxW, boxH, 230);

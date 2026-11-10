@@ -198,7 +198,7 @@ test('a permission prompt floats up; slide picks, tap answers, and it goes away'
   t.app.stop();
 });
 
-test('hold to talk shows the words live; release floats a draft that sends after 3 s; a tap or double tap cancels', async () => {
+test('hold to talk shows the words live; release floats a draft that sends after 2 s; a tap or double tap cancels', async () => {
   const t = setup();
   t.app.start();
   await tick(10);
