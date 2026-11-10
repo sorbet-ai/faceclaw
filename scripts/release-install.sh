@@ -12,6 +12,11 @@ PW="$(cat "$KEYDIR/keystore-password.txt")"
 PHONE="${1:-192.168.1.82:5555}"
 WATCH="${2:-192.168.1.83:44245}"
 [ -f build_paths.sh ] && source ./build_paths.sh
+# Git Bash: build_paths.sh gives Windows paths; put adb on PATH in POSIX form
+if [ -n "${LOCALAPPDATA:-}" ] && command -v cygpath >/dev/null 2>&1; then
+  PATH="$(cygpath -u "$LOCALAPPDATA")/Android/Sdk/platform-tools:$PATH"
+fi
+command -v adb >/dev/null || { echo "adb not found" >&2; exit 1; }
 
 mkdir -p dist
 echo "=== phone"
