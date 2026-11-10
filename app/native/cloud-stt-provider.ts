@@ -63,6 +63,8 @@ const CLOUD_PROVIDERS: Partial<Record<VoiceProviderKind, CloudProvider>> = {
       baseUrl: selection.whisperServerUrl ?? "",
       model: selection.whisperServerModel ?? "",
       language: selection.language ?? "",
+      // near-live words: a local GPU answers a provisional request in ~0.2s
+      interimSeconds: 0.4,
     }),
     finalTimeoutMs: WHISPER_SERVER_FINAL_TIMEOUT_MS,
   },

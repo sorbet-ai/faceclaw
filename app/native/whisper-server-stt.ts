@@ -18,6 +18,12 @@ export type WhisperServerConfig = {
   model: string;
   /** ISO-639-1 language code; empty lets Whisper detect it. */
   language: string;
+  /**
+   * Seconds of new audio between provisional transcripts (default 1.5; the
+   * first comes after max(this, 1s) of audio). One request is in flight at a
+   * time, so a short step only costs requests a fast server can answer.
+   */
+  interimSeconds?: number;
 };
 
 export type WhisperHttpRequest = {
@@ -96,7 +102,13 @@ export class WhisperServerSttClient implements CloudSttClient {
   ) {
     this.baseUrl = normalizeWhisperServerUrl(config.baseUrl);
     this.model = config.model.trim();
+    if (config.interimSeconds && config.interimSeconds > 0) {
+      this.interimStepBytes = BYTES_PER_SECOND * config.interimSeconds;
+      this.interimMinBytes = Math.min(INTERIM_MIN_BYTES, this.interimStepBytes);
+    }
   }
+  private interimStepBytes = INTERIM_STEP_BYTES;
+  private interimMinBytes = INTERIM_MIN_BYTES;
 
   start(): void {
     if (this.closed || this.ready) return;
@@ -243,8 +255,8 @@ export class WhisperServerSttClient implements CloudSttClient {
 
   private maybeRequestInterim(segment: Segment): void {
     if (!this.ready || segment.interimInFlight || segment.closed) return;
-    if (segment.bytes < INTERIM_MIN_BYTES) return;
-    if (segment.bytes - segment.interimBytes < INTERIM_STEP_BYTES) return;
+    if (segment.bytes < this.interimMinBytes) return;
+    if (segment.bytes - segment.interimBytes < this.interimStepBytes) return;
     if (segment.peakRms < SILENCE_RMS) return;
     segment.interimInFlight = true;
     segment.interimBytes = segment.bytes;
