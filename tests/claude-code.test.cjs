@@ -103,7 +103,7 @@ function setup() {
     },
     'graphics/ui-fonts': { getDefaultSmallFont: () => load('graphics/bdffont').getTerminusFont(16, false) },
     'ui/window-menu': { WINDOW_MENU_LAYOUT: {} },
-    'ui/menu': { MenuLayer: class { constructor(title, items) { this.title = title; this.items = items; } } },
+    'ui/menu': { MenuLayer: class { constructor(title, items) { this.title = title; this.items = items; this.selectedIndex = 0; } setItems(items, i) { this.items = items; if (i != null) this.selectedIndex = i; } } },
     'ui/gestures': { GESTURE_SHORT_THEN_LONG_PRESS: 'tap-hold', gestureHints: () => '' },
     'ui/shell/in-process-window': { createInProcessWindow: (o) => { windowOptions = o; return null; } },
     'ui/shell/shell': { shell: { prepareChatVoiceCapture: async () => true, yieldFocusToSidebar() {}, closeWindow() {} } },
@@ -338,7 +338,7 @@ test('ring scroll moves through history and the menu offers sessions', async () 
   t.app.stop();
 });
 
-test('Text size opens a list of sizes and applies the pick', async () => {
+test('Text size opens on the current size and stays open, moving the check mark', async () => {
   const t = setup();
   t.app.start();
   await tick(10);
@@ -350,9 +350,13 @@ test('Text size opens a list of sizes and applies the pick', async () => {
   const sizes = t.stack.top();
   assert.equal(sizes.title, 'Text size');
   assert.equal(JSON.stringify(sizes.items.map((i) => i.label)), JSON.stringify(['12 px', '✓ 14 px', '16 px', '18 px', '20 px']));
+  assert.equal(sizes.selectedIndex, 1, 'starts on the current size');
   sizes.items[3].onSelect(ctx);
   assert.equal(t.app.fontSize(), 18);
-  assert.equal(t.stack.layers.length, 1);
+  assert.equal(t.stack.top(), sizes, 'still open');
+  assert.equal(JSON.stringify(sizes.items.map((i) => i.label)), JSON.stringify(['12 px', '14 px', '16 px', '✓ 18 px', '20 px']));
+  sizes.items[0].onSelect(ctx);
+  assert.equal(t.app.fontSize(), 12);
   t.app.stop();
 });
 

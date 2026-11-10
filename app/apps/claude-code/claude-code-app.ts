@@ -717,7 +717,7 @@ export class ClaudeCodeApp implements Layer {
     if (!this.follow) items.push({ label: "Go to latest", onSelect: (ctx) => { this.goLive(); ctx.stack.clearToBase(); } });
     items.push(
       { label: "Sessions", onSelect: () => { void this.showSessions(); } },
-      { label: "Settings", onSelect: (ctx) => ctx.stack.push(flatMenu("Settings", this.settingsItems())) },
+      { label: "Settings", onSelect: (ctx) => ctx.stack.push(this.settingsMenu()) },
     );
     // never first: a tap opens the menu and a second tap picks the first item
     if (this.busy() && this.sessionId) {
@@ -730,31 +730,52 @@ export class ClaudeCodeApp implements Layer {
     return items;
   }
 
-  settingsItems(): MenuItem[] {
-    const current = this.fontSize();
+  /**
+   * Settings stay open while you try them: a pick moves the check mark (or
+   * flips the label) in place and the conversation re-lays out behind it.
+   */
+  settingsMenu(): MenuLayer {
+    const menu = flatMenu("Settings", []);
+    menu.setItems(this.settingsItems(menu), 0);
+    return menu;
+  }
+
+  settingsItems(menu?: MenuLayer): MenuItem[] {
+    const refresh = () => {
+      menu?.setItems(this.settingsItems(menu), menu.selectedIndex);
+      this.render();
+    };
     return [
-      { label: `Text size: ${current}`, onSelect: (ctx) => ctx.stack.push(flatMenu("Text size", FONT_SIZES.map((n) => ({
-        label: `${n === current ? "✓ " : ""}${n} px`,
-        onSelect: (pick: LayerContext) => {
-          setStringSetting(FONT_KEY, String(n));
-          this.laidOutFor = "";
-          pick.stack.clearToBase();
-          this.render();
-        },
-      })))) },
-      { label: `Scroll: ${this.reversedScroll() ? "reversed" : "natural"}`, onSelect: (ctx) => {
-        setStringSetting(SCROLL_KEY, this.reversedScroll() ? "natural" : "reversed");
-        ctx.stack.clearToBase();
-        this.flash(`scroll ${this.reversedScroll() ? "reversed" : "natural"}`);
+      { label: `Text size: ${this.fontSize()}`, onSelect: (ctx) => {
+        const sizes = flatMenu("Text size", []);
+        sizes.setItems(this.fontItems(sizes), Math.max(0, FONT_SIZES.indexOf(this.fontSize()))); // start on the current size
+        ctx.stack.push(sizes);
       } },
-      { label: `Tool output: ${this.toolOutput() ? "on" : "off"}`, onSelect: (ctx) => {
+      { label: `Scroll: ${this.reversedScroll() ? "reversed" : "natural"}`, onSelect: () => {
+        setStringSetting(SCROLL_KEY, this.reversedScroll() ? "natural" : "reversed");
+        refresh();
+      } },
+      { label: `Tool output: ${this.toolOutput() ? "on" : "off"}`, onSelect: () => {
         setStringSetting(TOOL_OUTPUT_KEY, this.toolOutput() ? "off" : "on");
         this.laidOutFor = "";
-        ctx.stack.clearToBase();
-        this.render();
+        refresh();
       } },
       { label: "Machines", onSelect: (ctx) => ctx.stack.push(flatMenu("Machines", this.serverItems())) },
     ];
+  }
+
+  /** Text sizes; a pick applies at once and moves the check mark (the menu stays open). */
+  private fontItems(menu: MenuLayer): MenuItem[] {
+    const current = this.fontSize();
+    return FONT_SIZES.map((n) => ({
+      label: `${n === current ? "✓ " : ""}${n} px`,
+      onSelect: () => {
+        setStringSetting(FONT_KEY, String(n));
+        this.laidOutFor = "";
+        menu.setItems(this.fontItems(menu), menu.selectedIndex);
+        this.render();
+      },
+    }));
   }
 
   /** Scans even-cc's QR code with the phone camera and adds that PC. */

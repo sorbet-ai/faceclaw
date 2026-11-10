@@ -132,6 +132,21 @@ type SingleNotificationLayerOptions = {
  * stack (the Notifications app viewport). Selecting one pushes the detail
  * view.
  */
+/** The list's last row: dismiss everything (below the cards, so a stray tap can't hit it). */
+const CLEAR_ALL_KEY = "\u0000clear-all";
+
+/**
+ * Dismisses every notification the list shows. Ongoing ones (music, a
+ * foreground service) refuse, as on the phone. Returns how many went.
+ */
+export function clearAllNotifications(): number {
+  let cleared = 0;
+  for (const n of readActiveNotifications(ALL_NOTIFICATIONS)) {
+    if (dismissNotification(n.key)) cleared++;
+  }
+  return cleared;
+}
+
 export class NotificationsListLayer implements Layer {
   private selectedKey = "";
 
@@ -146,6 +161,7 @@ export class NotificationsListLayer implements Layer {
     const layouts = notifications.map((notification, index) =>
       buildNotificationCardLayout(font, notification, index === selectedIndex, cardTextWidth),
     );
+    const clearHeight = font.lineHeight + 16;
 
     if (!notifications.length) {
       image.drawText(font, TITLE_X, TITLE_Y, "Notifications", 220);
@@ -159,7 +175,8 @@ export class NotificationsListLayer implements Layer {
 
     const focused = ctx.stack.isFocused();
     const listBottom = height;
-    const scrollY = scrollForSelected(layouts, selectedIndex, listBottom - LIST_TOP);
+    const clearSelected = selectedIndex === notifications.length;
+    const scrollY = scrollForSelected([...layouts, { height: clearHeight } as CardLayout], selectedIndex, listBottom - LIST_TOP);
     // The title scrolls away with the list. Card text is drawn as deferred
     // glyphs (always composited above raster fills), so a fixed title would
     // show through cards scrolled over it; moving it with the content keeps
@@ -179,6 +196,11 @@ export class NotificationsListLayer implements Layer {
       }
       cursorY += layout.height + CARD_GAP;
       if (cursorY > listBottom + 80) break;
+    }
+    if (cursorY <= listBottom) {
+      if (clearSelected) image.fillRect(CARD_X, cursorY, cardWidth, clearHeight, focused ? 15 : 1);
+      image.drawRect(CARD_X, cursorY, cardWidth, clearHeight, clearSelected ? 110 : 38);
+      image.drawText(font, CARD_X + 14, cursorY + 8, "Clear all", clearSelected ? 255 : 170);
     }
 
     return image;
@@ -200,7 +222,12 @@ export class NotificationsListLayer implements Layer {
       return;
     }
     if (event.type === "scroll-down") {
-      this.selectedKey = notifications[Math.min(notifications.length - 1, selectedIndex + 1)]!.key;
+      this.selectedKey = selectedIndex + 1 >= notifications.length ? CLEAR_ALL_KEY : notifications[selectedIndex + 1]!.key;
+      return;
+    }
+    if (event.type === "click" && selectedIndex === notifications.length) {
+      clearAllNotifications();
+      this.selectedKey = "";
       return;
     }
     if (event.type === "click") {
@@ -215,6 +242,7 @@ export class NotificationsListLayer implements Layer {
       this.selectedKey = "";
       return -1;
     }
+    if (this.selectedKey === CLEAR_ALL_KEY) return notifications.length;
     let index = notifications.findIndex((notification) => notification.key === this.selectedKey);
     if (index < 0) {
       index = 0;
