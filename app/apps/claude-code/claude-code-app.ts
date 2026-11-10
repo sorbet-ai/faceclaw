@@ -233,7 +233,7 @@ export class ClaudeCodeApp implements Layer {
   }
 
   /**
-   * The session list: "New session" first, then the sessions newest first.
+   * The session list: per PC, "+ New session" first, then its sessions newest first.
    * It is the app's opening screen; the menu's Sessions shows it again.
    */
   async showSessions(opening = false) {
@@ -637,25 +637,10 @@ export class ClaudeCodeApp implements Layer {
     }
     items.push(
       { label: "Sessions", onSelect: () => { void this.showSessions(); } },
-      { label: "New session", onSelect: (ctx) => this.pickNewSession(ctx) },
       { label: "Settings", onSelect: (ctx) => ctx.stack.push(flatMenu("Settings", this.settingsItems())) },
       { label: "Close Claude Code", onSelect: (ctx) => { ctx.stack.clearToBase(); shell.closeWindow(APP_ID); } },
     );
     return items;
-  }
-
-  /** New session on the one PC, or a choice of PCs. */
-  private pickNewSession(ctx: LayerContext) {
-    const servers = loadServers();
-    if (servers.length <= 1) {
-      ctx.stack.clearToBase();
-      this.newSession(servers[0] ?? null);
-      return;
-    }
-    ctx.stack.push(flatMenu("New session on", servers.map((server) => ({
-      label: server.name,
-      onSelect: (pick: LayerContext) => { pick.stack.clearToBase(); this.newSession(server); },
-    }))));
   }
 
   settingsItems(): MenuItem[] {

@@ -262,7 +262,7 @@ test('ring scroll moves through history and the menu offers sessions', async () 
   assert.equal(t.app.first, bottom - 3);
   assert.equal(t.app.follow, false);
   const labels = t.app.menuItems().map((m) => m.label);
-  assert.ok(labels.includes('Sessions') && labels.includes('New session') && labels.includes('Go to latest'), labels.join(', '));
+  assert.ok(labels.includes('Sessions') && !labels.includes('New session') && labels.includes('Go to latest'), labels.join(', '));
   t.app.stop();
 });
 
