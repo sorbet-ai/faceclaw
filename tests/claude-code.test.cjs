@@ -104,6 +104,7 @@ function setup() {
     'ui/shell/voice-activity': { voiceActivity: { setActive() {} } },
     'apps/claude-code/api': server.api,
     'apps/claude-code/servers': { loadServers: () => servers, removeServer() {} },
+    'native/qr-scan': { isQrScannerAvailable: () => true, scanQrCode: async () => null },
   });
   const mod = load('apps/claude-code/claude-code-app');
   const { GrayImage } = load('graphics/image');
@@ -364,4 +365,10 @@ test('an evencc://add link adds the PC, its voice proxy and its terminal', () =>
   assert.equal(loadServers()[0].token, 'new');
   assert.equal(connections.length, 1);
   assert.equal(addFromLink('evencc://add?url=ftp%3A%2F%2Fx&token=t'), null);
+  // even-cc's QR code itself, scanned in Faceclaw
+  const r2 = addFromLink('http://192.168.1.85:3457/setup?name=mule+%28WSL%29&token=wsl');
+  assert.equal(r2.server.url, 'http://192.168.1.85:3457');
+  assert.equal(r2.server.name, 'mule (WSL)');
+  assert.equal(loadServers().length, 2);
+  assert.equal(addFromLink('https://example.com/other?token=x'), null);
 });

@@ -64,19 +64,23 @@ export interface AddResult {
 }
 
 /**
- * Handles evencc://add?url=&token=&name=[&stt=1][&terminal=g2mirror://...]:
- * adds the server, points voice at its Whisper proxy when it has one, and
- * adds its terminal mirror to the Terminal app.
+ * Handles even-cc's QR code (http://<pc>:<port>/setup?token=&name=[&stt=1]
+ * [&terminal=g2mirror://...], scanned in Faceclaw) and the evencc://add?url=&...
+ * link its setup page opens: adds the server, points voice at its Whisper
+ * proxy when it has one, and adds its terminal mirror to the Terminal app.
  */
 export function addFromLink(link: string): AddResult | null {
-  const m = /^evencc:\/\/add\?(.*)$/i.exec(link.trim());
-  if (!m) return null;
+  const text = link.trim();
+  const add = /^evencc:\/\/add\?(.*)$/i.exec(text);
+  const setup = /^(https?:\/\/[^/?#]+)\/setup\?(.*)$/i.exec(text);
+  if (!add && !setup) return null;
   const q = new Map<string, string>();
-  for (const part of m[1].split("&")) {
+  for (const part of (add ? add[1] : setup![2]).split("&")) {
     const i = part.indexOf("=");
     if (i < 0) continue;
     q.set(decodeURIComponent(part.slice(0, i).replace(/\+/g, " ")), decodeURIComponent(part.slice(i + 1).replace(/\+/g, " ")));
   }
+  if (setup) q.set("url", setup[1]);
   const url = (q.get("url") ?? "").trim().replace(/\/+$/, "");
   const token = (q.get("token") ?? "").trim();
   if (!/^https?:\/\/[^/]+$/i.test(url) || !token) return null;

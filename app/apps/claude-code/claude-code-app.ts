@@ -25,7 +25,8 @@ import { createInProcessWindow, type InProcessAppOptions, type InProcessWindow }
 import { shell } from "../../ui/shell/shell";
 import { VoiceDraft } from "../ai-chat/voice-draft";
 import * as api from "./api";
-import { loadServers, removeServer, type EvenCcServer } from "./servers";
+import { addFromLink, loadServers, removeServer, type EvenCcServer } from "./servers";
+import { isQrScannerAvailable, scanQrCode } from "../../native/qr-scan";
 import { apply, emptyConversation, fromHistory, statusLeft, type Conversation } from "./core/model";
 import { layout, type Line, type Style } from "./core/layout";
 
@@ -244,7 +245,7 @@ export class ClaudeCodeApp implements Layer {
     }
     if (!loadServers().length) {
       this.conv = emptyConversation();
-      this.conv.blocks.push({ kind: "meta", text: "No PCs yet. Run even-cc on your PC and scan the QR code it prints with the phone camera." });
+      this.conv.blocks.push({ kind: "meta", text: "No PCs yet. Run even-cc on your PC, then tap: Settings > PCs > Add a PC, and scan the QR code it prints." });
       this.laidOutFor = "";
       this.render();
       return;
@@ -688,10 +689,38 @@ export class ClaudeCodeApp implements Layer {
     ];
   }
 
+  /** Scans even-cc's QR code with the phone camera and adds that PC. */
+  async scanToAdd() {
+    if (!isQrScannerAvailable()) {
+      this.flash("no QR scanner on this phone");
+      return;
+    }
+    this.flash("point the phone camera at even-cc's QR code");
+    let scanned: string | null;
+    try {
+      scanned = await scanQrCode();
+    } catch (e) {
+      this.fail(e);
+      return;
+    }
+    if (scanned === null) {
+      this.flash("scan cancelled");
+      return;
+    }
+    const result = addFromLink(scanned);
+    if (!result) {
+      this.flash("that QR code isn't from even-cc");
+      return;
+    }
+    this.flash(`added ${result.server.name}`);
+    await this.showSessions();
+  }
+
   private serverItems(): MenuItem[] {
+    const add: MenuItem = { label: "+ Add a PC (scan its QR)", onSelect: (ctx: LayerContext) => { ctx.stack.clearToBase(); void this.scanToAdd(); } };
     const servers = loadServers();
-    if (!servers.length) return [{ label: "(none yet)", disabled: true, onSelect: () => {} }];
-    return servers.map((server) => ({
+    if (!servers.length) return [add];
+    return [add, ...servers.map((server) => ({
       label: `${server.name}${this.offline.includes(server.name) ? " · offline" : ""}`,
       description: server.url,
       onSelect: (ctx: LayerContext) => ctx.stack.push(flatMenu(server.name, [
@@ -701,7 +730,7 @@ export class ClaudeCodeApp implements Layer {
           this.flash(`removed ${server.name}`);
         } },
       ])),
-    }));
+    }))];
   }
 
   private sessionItems(): MenuItem[] {
