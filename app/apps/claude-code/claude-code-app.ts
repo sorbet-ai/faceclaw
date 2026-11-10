@@ -172,6 +172,8 @@ export class ClaudeCodeApp implements Layer {
   private prompt: PromptLayer | null = null;
   /** The client holding the open session elsewhere ("" = this app may write to it). */
   elsewhere = "";
+  /** The holder elsewhere looks mid-turn (closing it would cut a reply short). */
+  elsewhereBusy = false;
   private elsewhereTimer: ReturnType<typeof setInterval> | undefined;
   private dismissed = ""; // the prompt the wearer hid with double tap
   private laidOutFor = "";
@@ -327,6 +329,7 @@ export class ClaudeCodeApp implements Layer {
     const h = await api.history(this.cfg, sessionId);
     this.conv = fromHistory(h.history);
     this.watchElsewhere(h.openElsewhere ?? "", historySig(h.history));
+    this.elsewhereBusy = !!h.elsewhereBusy;
     this.follow = true;
     this.fillOnLayout = true;
     this.laidOutFor = "";
@@ -376,6 +379,7 @@ export class ClaudeCodeApp implements Layer {
           return;
         }
         this.elsewhere = h.openElsewhere;
+        this.elsewhereBusy = !!h.elsewhereBusy;
         this.render();
       }, (e) => console.warn(`claude-code: refresh: ${e}`)).finally(() => { busy = false; });
     }, ELSEWHERE_REFRESH_MS);
@@ -534,19 +538,56 @@ export class ClaudeCodeApp implements Layer {
     }
   }
 
-  /** The session is open elsewhere: carry it on in a new session here, or drop the prompt. */
+  /**
+   * The session is open elsewhere: close it there and continue it here, carry
+   * it on in a new session (fork), or stay read only (the prompt is dropped).
+   */
   offerFork(text: string) {
     this.closePrompt();
     const sid = this.sessionId;
     const cfg = this.cfg;
-    const layer = new PromptLayer(this, `fork:${sid}`, `Open in ${this.elsewhere}`,
-      `Close it there to talk here, or fork: a new session that carries on from this one.\n"${text}"`, [
+    const where = this.elsewhere;
+    const layer = new PromptLayer(this, `fork:${sid}`, `Open in ${where}${this.elsewhereBusy ? " · busy" : ""}`,
+      `Close it there and continue here, or fork: a new session that carries on from this one.\n"${text}"`, [
+        { label: `Close in ${where} and send`, act: () => this.takeOver(text, false) },
         { label: "Fork and send", act: async () => {
           const r = await api.sendPrompt(cfg, sid, text, true);
           await this.refreshSessions().catch(() => []);
           await this.open(r.sessionId, this.server ?? undefined);
           this.flash("forked");
         } },
+        { label: "Stay read only", act: async () => {} },
+      ], false);
+    this.prompt = layer;
+    this.window.stack.push(layer);
+    this.render();
+  }
+
+  /**
+   * Closes the process holding this session elsewhere, then sends text (if
+   * any) here. A holder mid-reply asks first: closing it cuts the reply short.
+   */
+  async takeOver(text: string, force: boolean): Promise<void> {
+    const sid = this.sessionId;
+    const where = this.elsewhere || "the other app";
+    if (!force && this.elsewhereBusy) return this.confirmTakeOver(text, where);
+    try {
+      await api.release(this.cfg, sid, force);
+    } catch (e) {
+      if (e instanceof api.ApiError && e.status === 409 && !force) return this.confirmTakeOver(text, where);
+      throw e;
+    }
+    if (sid !== this.sessionId) return;
+    this.watchElsewhere("");
+    this.elsewhereBusy = false;
+    if (text) await this.sendPrompt(text);
+    this.flash(`closed in ${where}`);
+  }
+
+  private confirmTakeOver(text: string, where: string) {
+    const layer = new PromptLayer(this, `takeover:${this.sessionId}`, `Busy in ${where}`,
+      "It isn't idle there: closing it cuts that reply short. Close it anyway?", [
+        { label: "Close anyway", act: () => this.takeOver(text, true) },
         { label: "Cancel", act: async () => {} },
       ], false);
     this.prompt = layer;
@@ -658,7 +699,7 @@ export class ClaudeCodeApp implements Layer {
       // why the last hold did nothing (no microphone, no speech, model download)
       input = [{ text: "❯ ", style: "promptMark" }, { text: this.voiceNote || this.draft.status, style: "err" }];
     } else {
-      const hint = this.elsewhere ? `read only: open in ${this.elsewhere} · hold to fork` : "hold to talk · tap for menu";
+      const hint = this.elsewhere ? `read only: open in ${this.elsewhere} · hold to talk` : "hold to talk · tap for menu";
       input = [{ text: "❯ ", style: "promptMark" }, { text: hint, style: "faint" }];
     }
     g.drawSpans(image, x0, inputY, input, this.cols);
@@ -711,6 +752,12 @@ export class ClaudeCodeApp implements Layer {
       items.push({ label: "Reconnect", onSelect: (ctx) => {
         ctx.stack.clearToBase();
         void this.open(this.sessionId, this.server ?? undefined).catch((e) => this.fail(e));
+      } });
+    }
+    if (this.elsewhere) {
+      items.push({ label: `Close in ${this.elsewhere}`, onSelect: (ctx) => {
+        ctx.stack.clearToBase();
+        void this.takeOver("", false).catch((e) => this.fail(e));
       } });
     }
     if (this.pendingBlock()) items.push({ label: "Answer prompt", onSelect: (ctx) => { ctx.stack.clearToBase(); this.syncPrompt(true); } });

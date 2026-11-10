@@ -52,7 +52,12 @@ function fakeServer() {
     api: {
       listSessions: async () => s.sessions,
       machineInfo: async () => s.machine ?? Promise.reject(new Error('old even-cc')),
-      history: async (_c, id) => ({ history: s.history, openElsewhere: id === 's1' ? s.elsewhere : undefined }),
+      history: async (_c, id) => ({ history: s.history, openElsewhere: id === 's1' ? s.elsewhere : undefined, elsewhereBusy: id === 's1' && s.busyThere }),
+      release: async (_c, sid, force) => {
+        if (s.busyThere && !force) throw new s.api.ApiError('409', 409, 'Busy in VS Code: close it anyway?');
+        calls.push(['release', sid, force]);
+        s.elsewhere = undefined; s.held = undefined; s.busyThere = false;
+      },
       ApiError: class extends Error { constructor(m, status, detail) { super(m); this.status = status; this.detail = detail; } },
       answerPermission: async (_c, sid, d) => { calls.push(['permission', sid, d]); },
       answerQuestion: async (_c, sid, a) => { calls.push(['question', sid, a]); },
@@ -257,6 +262,7 @@ test('a session open elsewhere is read only, refreshes, and forks on demand', as
   await t.app.sendPrompt('carry on');
   assert.equal(t.server.calls.length, 0, 'nothing sent to a held session');
   assert.equal(t.stack.layers.length, 2, 'fork prompt up');
+  await t.input('scroll-down');
   await t.input('click'); // "Fork and send"
   await tick(10);
   assert.deepEqual(t.server.calls.at(-1), ['fork', 's1', 'carry on']);
@@ -299,6 +305,30 @@ test('the session list shows the machine account and plan usage', async () => {
   assert.equal(labels[0], 'New session', 'opens on New session');
   assert.ok(labels.includes('me@example.com · max'), labels.join(' | '));
   assert.ok(labels.some((l) => /^5h resets .* · wk resets /.test(l)), labels.join(' | '));
+  t.app.stop();
+});
+
+test('closing the session where it is open continues it here, asking first when it is busy', async () => {
+  const t = setup();
+  t.app.start();
+  await tick(10);
+  t.stack.clearToBase();
+  t.server.elsewhere = 'VS Code';
+  t.server.held = 'VS Code';
+  t.server.busyThere = true;
+  await t.app.open('s1');
+  assert.equal(t.app.elsewhereBusy, true);
+  await t.app.sendPrompt('take it from here');
+  writePng('claude-code-takeover.png', t.paint());
+  await t.input('click'); // "Close in VS Code and send"
+  await tick(10);
+  assert.equal(t.server.calls.length, 0, 'asks first: busy there');
+  assert.match(t.stack.top().heading ?? '', /Busy in VS Code/);
+  await t.input('click'); // "Close anyway"
+  await tick(10);
+  assert.deepEqual(t.server.calls, [['release', 's1', true], ['prompt', 's1', 'take it from here']]);
+  assert.equal(t.app.sessionId, 's1', 'same session, no fork');
+  assert.equal(t.app.elsewhere, '');
   t.app.stop();
 });
 

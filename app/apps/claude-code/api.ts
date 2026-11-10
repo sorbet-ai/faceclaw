@@ -52,7 +52,7 @@ export const listSessions = (cfg: ServerConfig) =>
 
 /** The transcript, and who else holds the session (open elsewhere = read only). */
 export const history = (cfg: ServerConfig, id: string) =>
-  call<{ history: HistoryItem[]; openElsewhere?: string }>(cfg, `/api/sessions/${encodeURIComponent(id)}/history?limit=200&provider=claude`);
+  call<{ history: HistoryItem[]; openElsewhere?: string; elsewhereBusy?: boolean }>(cfg, `/api/sessions/${encodeURIComponent(id)}/history?limit=200&provider=claude`);
 
 export interface UsageWindow {
   utilization: number; // 0..1
@@ -85,6 +85,14 @@ export const answerQuestion = (cfg: ServerConfig, sessionId: string, answer: str
  */
 export const sendPrompt = (cfg: ServerConfig, sessionId: string, text: string, fork = false) =>
   call<{ sessionId: string }>(cfg, "/api/prompt", { sessionId, text, provider: "claude", ...(fork ? { fork: true } : {}) });
+
+/**
+ * Closes the Claude Code process holding a session elsewhere (VS Code, a
+ * terminal) so this app continues it. Without force, a holder that looks
+ * mid-turn answers 409.
+ */
+export const release = (cfg: ServerConfig, sessionId: string, force: boolean) =>
+  call(cfg, "/api/release", { sessionId, force });
 
 export const interrupt = (cfg: ServerConfig, sessionId: string) =>
   call(cfg, "/api/interrupt", { sessionId, provider: "claude" });
