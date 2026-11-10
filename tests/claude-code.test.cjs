@@ -280,3 +280,23 @@ test('Text size opens a list of sizes and applies the pick', async () => {
   assert.equal(t.stack.layers.length, 1);
   t.app.stop();
 });
+
+test('streaming text moves the view in steps, not a line at a time', async () => {
+  const t = setup();
+  t.server.history = Array.from({ length: 30 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: `message ${i} ` + 'words '.repeat(20) }));
+  t.app.start();
+  await tick(10);
+  t.stack.clearToBase();
+  await t.app.open('s1');
+  t.paint();
+  assert.equal(t.app.first, t.app.bottom(), 'opens on a full screen');
+  const firsts = new Set();
+  for (let i = 0; i < 40; i++) {
+    t.server.emit({ type: 'text', text: 'streamed line ' + i + '\n\n' });
+    t.paint();
+    firsts.add(t.app.first);
+    assert.ok(t.app.lines.length - t.app.first <= t.app.rows, 'newest line on screen');
+  }
+  assert.ok(firsts.size <= Math.ceil(80 / Math.ceil(t.app.rows / 3)) + 1, `${firsts.size} distinct positions over 40 streamed lines`);
+  t.app.stop();
+});

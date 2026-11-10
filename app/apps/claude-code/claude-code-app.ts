@@ -302,6 +302,7 @@ export class ClaudeCodeApp implements Layer {
     this.title = this.sessions.find((s) => s.id === sessionId)?.title ?? "";
     this.conv = fromHistory(await api.history(this.cfg, sessionId));
     this.follow = true;
+    this.fillOnLayout = true;
     this.laidOutFor = "";
     this.render();
     const sid = sessionId;
@@ -484,8 +485,27 @@ export class ClaudeCodeApp implements Layer {
     this.rows = rows;
     this.lines = layout(this.conv.blocks, { cols, toolOutputLines: this.toolOutput() ? 3 : 0 });
     this.laidOutFor = key;
-    const bottom = this.bottom();
-    this.first = this.follow ? bottom : Math.min(this.first, bottom);
+    if (this.fillOnLayout) {
+      this.fillOnLayout = false;
+      this.first = this.bottom(); // a full screen on opening and on "go to latest"
+    } else {
+      this.first = this.follow ? this.followFirst(this.first) : Math.min(this.first, Math.max(this.bottom(), this.first));
+    }
+  }
+
+  /**
+   * Following the live end, the view moves in steps: when new lines run past
+   * the bottom it jumps so the newest sits two thirds down, and the next third
+   * of a screen of streamed text fills in below without shifting anything
+   * (every whole-screen shift costs Bluetooth time the input then waits for).
+   */
+  private fillOnLayout = true;
+
+  private followFirst(current: number): number {
+    const total = this.lines.length;
+    if (total <= this.rows) return 0;
+    if (current < total - this.rows) return Math.max(this.bottom(), total - Math.ceil((this.rows * 2) / 3));
+    return Math.min(current, total - 1);
   }
 
   bottom(): number {
@@ -493,14 +513,16 @@ export class ClaudeCodeApp implements Layer {
   }
 
   scrollBy(n: number) {
-    const to = Math.max(0, Math.min(this.bottom(), this.first + n));
+    const max = Math.max(this.bottom(), this.first);
+    const to = Math.max(0, Math.min(max, this.first + n));
     this.first = to;
     this.follow = to >= this.bottom();
   }
 
   goLive() {
     this.follow = true;
-    this.first = this.bottom();
+    this.fillOnLayout = true;
+    this.laidOutFor = "";
   }
 
   paint(ctx: LayerContext): GrayImage {
@@ -556,7 +578,7 @@ export class ClaudeCodeApp implements Layer {
     const statusY = boxTop + 3 * g.pitch;
     const left = (this.busy() ? SPINNER[this.spin % SPINNER.length] + statusLeft(this.conv).slice(1) : statusLeft(this.conv)) +
       (this.title ? " · " + this.title : "");
-    const more = this.bottom() - this.first;
+    const more = Math.max(0, this.bottom() - this.first);
     const right = [
       this.note,
       !this.connected && this.sessionId ? "offline" : "",
