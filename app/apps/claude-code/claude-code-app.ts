@@ -37,9 +37,15 @@ export const APP_ID = "claude-code";
  * menus use 4) goes to the glasses as a cached image, and in this full-panel
  * window those stopped updating after the first change.
  */
-export function flatMenu(title: string, items: MenuItem[]): MenuLayer {
-  return new MenuLayer(title, items, { ...WINDOW_MENU_LAYOUT, depth: 0,
+export function flatMenu(title: string, items: MenuItem[], width = WINDOW_MENU_LAYOUT.width): MenuLayer {
+  return new MenuLayer(title, items, { ...WINDOW_MENU_LAYOUT, depth: 0, width,
     footer: gestureHints([[GESTURE_SHORT_THEN_LONG_PRESS, "system menu"]]) });
+}
+
+/** Session lists use nearly the whole window, and labels are cut to fit. */
+const WIDE_MENU = 540;
+function fitLabel(text: string): string {
+  return truncateText(getDefaultSmallFont(), text, WIDE_MENU - 48);
 }
 
 
@@ -727,13 +733,13 @@ export class ClaudeCodeApp implements Layer {
    */
   sessionMenu(): MenuLayer {
     const servers = loadServers();
-    if (servers.length <= 1) return flatMenu("Sessions", this.serverSessionItems(servers[0] ?? null));
+    if (servers.length <= 1) return flatMenu("Sessions", this.serverSessionItems(servers[0] ?? null), WIDE_MENU);
     return flatMenu("Machines", servers.map((server) => {
       const count = this.sessions.filter((s) => s.server.url === server.url).length;
       const offline = this.offline.includes(server.name);
       return {
         label: `${server.url === this.server?.url ? "✓ " : ""}${server.name} · ${offline ? "offline" : `${count} session${count === 1 ? "" : "s"}`}`,
-        onSelect: (ctx: LayerContext) => ctx.stack.push(flatMenu(server.name, this.serverSessionItems(server))),
+        onSelect: (ctx: LayerContext) => ctx.stack.push(flatMenu(server.name, this.serverSessionItems(server), WIDE_MENU)),
       };
     }));
   }
@@ -747,7 +753,7 @@ export class ClaudeCodeApp implements Layer {
     for (const s of this.sessions.filter((s) => !server || s.server.url === server.url).slice(0, 40)) {
       const folder = s.cwd.split(/[\\/]/).filter(Boolean).pop() ?? "";
       items.push({
-        label: `${s.id === this.sessionId ? "✓ " : ""}${s.title || s.id.slice(0, 8)} · ${ago(s.timestamp)}${folder ? " · " + folder : ""}`,
+        label: fitLabel(`${s.id === this.sessionId ? "✓ " : ""}${s.title || s.id.slice(0, 8)} · ${ago(s.timestamp)}${folder ? " · " + folder : ""}`),
         description: s.cwd,
         onSelect: (ctx: LayerContext) => {
           ctx.stack.clearToBase();
