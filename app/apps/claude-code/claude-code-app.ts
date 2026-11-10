@@ -453,13 +453,11 @@ export class ClaudeCodeApp implements Layer {
       void this.answer(this.prompt, { label: "answered", act: () => api.answerQuestion(cfg, sid, text) });
       return;
     }
-    this.pendingDraft = text;
-    this.window.stack.push(new DraftLayer(this, text));
+    const layer = new DraftLayer(this, text);
+    this.window.stack.push(layer);
+    layer.start(this.window.stack);
     this.render();
   }
-
-  /** A finished voice prompt waiting for tap (send) or double tap (drop). */
-  pendingDraft = "";
 
   async sendPrompt(text: string) {
     this.follow = true;
@@ -578,9 +576,6 @@ export class ClaudeCodeApp implements Layer {
     if (this.draft.active) {
       const t = this.draft.text || this.draft.status || "Listening...";
       input = [{ text: "❯ ", style: "promptMark" }, { text: tail(t, this.cols - 4), style: this.draft.text ? "prompt" : "dim" }];
-    } else if (this.pendingDraft) {
-      const hint = "  tap: send · 2x tap: drop";
-      input = [{ text: "❯ ", style: "promptMark" }, { text: tail(this.pendingDraft, this.cols - 4 - hint.length), style: "prompt" }, { text: hint, style: "dim" }];
     } else if (this.voiceNote || this.draft.status) {
       // why the last hold did nothing (no microphone, no speech, model download)
       input = [{ text: "❯ ", style: "promptMark" }, { text: this.voiceNote || this.draft.status, style: "err" }];
@@ -844,40 +839,91 @@ class PromptLayer implements Layer {
   }
 }
 
-/** A finished voice prompt waiting for a tap (send) or double tap (drop). */
+/** Seconds a finished voice prompt waits before it sends itself. */
+const SEND_COUNTDOWN = 3;
+/** Stereo depth of the voice box: well in front of the conversation (Faceclaw's menus use 4). */
+const DRAFT_DEPTH = 8;
+
 /**
- * A finished voice prompt, shown in the input line itself (no popup): this
- * invisible layer only takes the tap (send) and double tap (drop), which the
- * hold-to-talk window would otherwise turn into its menu and leaving.
+ * A finished voice prompt floating in front of everything, sending itself
+ * after a countdown; a tap or double tap cancels it, holding talks again.
  */
 class DraftLayer implements Layer {
   readonly paintOverBase = true;
+  readonly dimUnderneath = 0.35;
+  readonly depth = DRAFT_DEPTH;
+  private left = SEND_COUNTDOWN;
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private done = false;
+  private stack: LayerStack | null = null;
 
   constructor(private readonly app: ClaudeCodeApp, readonly text: string) {}
 
-  paint(_ctx: LayerContext, paintBelow: PaintBelow): GrayImage {
-    return paintBelow();
+  /** Starts the countdown; the app pushes the layer onto `stack` first. */
+  start(stack: LayerStack) {
+    this.stack = stack;
+    this.timer = setInterval(() => {
+      this.left--;
+      if (this.left > 0) {
+        this.app.render();
+        return;
+      }
+      this.finish(true);
+    }, 1000);
   }
 
-  handleInput(event: InputEvent, ctx: LayerContext): void {
+  private finish(send: boolean) {
+    if (this.done) return;
+    this.done = true;
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    removeLayer(this.stack ?? undefined, this);
+    if (send) void this.app.sendPrompt(this.text);
+    else this.app.flash("cancelled");
+    this.app.render();
+  }
+
+  onRemoved() {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    this.done = true;
+  }
+
+  paint(ctx: LayerContext, paintBelow: PaintBelow): GrayImage {
+    const image = paintBelow();
+    const { width, height } = ctx.stack.getBaseSize();
+    const font = getDefaultSmallFont();
+    const step = font.lineHeight + 4;
+    const boxW = width - 64;
+    const inner = boxW - 32;
+    const lines = wrapText(font, this.text, inner).slice(-6);
+    const boxH = 24 + step * (lines.length + 2);
+    const bx = 32;
+    const by = Math.max(8, Math.floor((height - boxH) / 2));
+    image.fillRect(bx, by, boxW, boxH, 1); // 0 is transparent on a layer canvas
+    image.drawRect(bx, by, boxW, boxH, 230);
+    image.drawRect(bx + 1, by + 1, boxW - 2, boxH - 2, 120);
+    let y = by + 12;
+    for (const line of lines) {
+      font.drawText(image, bx + 16, y, line, 245);
+      y += step;
+    }
+    // countdown bar: shrinks to nothing as the send approaches
+    const barW = Math.round(((boxW - 32) * this.left) / SEND_COUNTDOWN);
+    image.fillRect(bx + 16, y + 6, barW, 3, 200);
+    font.drawText(image, bx + 16, y + step - 2, `sending in ${this.left} · tap to cancel`, 150);
+    return image;
+  }
+
+  handleInput(event: InputEvent): void {
     switch (event.type) {
       case "click":
-        removeLayer(ctx.stack, this);
-        this.app.pendingDraft = "";
-        void this.app.sendPrompt(this.text);
-        return;
       case "double-click":
-        removeLayer(ctx.stack, this);
-        this.app.pendingDraft = "";
-        this.app.flash("dropped");
+        this.finish(false);
         return;
       case "long-press":
-        removeLayer(ctx.stack, this);
-        this.app.pendingDraft = "";
+        this.finish(false);
         this.app.startTalking();
-        return;
-      case "scroll-up": case "swipe-up": case "scroll-down": case "swipe-down":
-        this.app.handleInput(event);
         return;
     }
   }

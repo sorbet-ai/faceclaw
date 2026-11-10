@@ -198,7 +198,7 @@ test('a permission prompt floats up; slide picks, tap answers, and it goes away'
   t.app.stop();
 });
 
-test('hold to talk shows the words live; release gives a draft; tap sends, double tap drops', async () => {
+test('hold to talk shows the words live; release floats a draft that sends after 3 s; a tap or double tap cancels', async () => {
   const t = setup();
   t.app.start();
   await tick(10);
@@ -213,20 +213,25 @@ test('hold to talk shows the words live; release gives a draft; tap sends, doubl
   await t.input('long-press-release');
   await tick(1700);
   assert.equal(t.stack.layers.length, 2, 'draft layer up');
+  assert.equal(t.stack.top().depth, 8, 'floats in front');
   writePng('claude-code-draft.png', t.paint());
-  await t.input('click');
-  await tick();
+  assert.equal(t.server.calls.filter((c) => c[0] === 'prompt').length, 0, 'not sent yet');
+  await tick(3200);
   assert.deepEqual(t.server.calls.at(-1), ['prompt', 's1', 'add a retry to the upload']);
-  assert.equal(t.stack.layers.length, 1);
+  assert.equal(t.stack.layers.length, 1, 'gone after sending');
 
-  await t.input('long-press');
-  await tick();
-  t.say('never mind', true);
-  await t.input('long-press-release');
-  await tick(1700);
-  await t.input('double-click');
-  assert.equal(t.stack.layers.length, 1);
-  assert.equal(t.server.calls.filter((c) => c[0] === 'prompt').length, 1, 'dropped draft not sent');
+  for (const cancel of ['click', 'double-click']) {
+    await t.input('long-press');
+    await tick();
+    t.say('never mind', true);
+    await t.input('long-press-release');
+    await tick(1700);
+    assert.equal(t.stack.layers.length, 2);
+    await t.input(cancel);
+    assert.equal(t.stack.layers.length, 1, `${cancel} closes it`);
+    await tick(3200);
+  }
+  assert.equal(t.server.calls.filter((c) => c[0] === 'prompt').length, 1, 'cancelled drafts not sent');
   t.app.stop();
 });
 
