@@ -2741,6 +2741,11 @@ class DashboardController {
    * Settings item, and open-apps restore all come through here. Apps with an
    * open window focus it instead of opening another.
    */
+  /** Opens the Claude Code app on the glasses (after an even-cc setup link). */
+  async openClaudeCode(): Promise<void> {
+    await this.launchApp("claude-code");
+  }
+
   private async launchApp(appId: string, params?: AppLaunchParams): Promise<void> {
     const app = ALL_APPS.find((entry) => entry.appId === appId);
     if (app) {

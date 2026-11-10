@@ -20,7 +20,7 @@ export interface SessionInfo {
 }
 
 async function call<T>(cfg: ServerConfig, path: string, body?: unknown): Promise<T> {
-  if (!cfg.base) throw new Error("No even-cc server set (window menu > Server).");
+  if (!cfg.base) throw new Error("No PC for this session: scan the QR code even-cc prints (menu > Settings > PCs).");
   const r = await fetchTextWithUserAgent(cfg.base + path, {
     method: body === undefined ? "GET" : "POST",
     headers: { Authorization: "Bearer " + cfg.token, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },

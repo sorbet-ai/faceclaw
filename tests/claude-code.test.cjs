@@ -76,6 +76,8 @@ function fakeStack(base, size) {
   };
 }
 
+let servers = [{ name: 'mule', url: 'http://pc:3456', token: 't' }];
+
 function setup() {
   const settings = new Map();
   const transcripts = new Set();
@@ -101,7 +103,7 @@ function setup() {
     'native/voice-control': { voiceControlBridge: voice },
     'ui/shell/voice-activity': { voiceActivity: { setActive() {} } },
     'apps/claude-code/api': server.api,
-    'apps/claude-code/core/defaults': { DEFAULT_SERVER: 'http://pc:3456', DEFAULT_TOKEN: 't' },
+    'apps/claude-code/servers': { loadServers: () => servers, removeServer() {} },
   });
   const mod = load('apps/claude-code/claude-code-app');
   const { GrayImage } = load('graphics/image');
@@ -270,7 +272,7 @@ test('Text size opens a list of sizes and applies the pick', async () => {
   t.stack.clearToBase();
   await t.app.open('s1');
   const ctx = { stack: t.stack, actions: {} };
-  const item = t.app.menuItems().find((m) => m.label.startsWith('Text size'));
+  const item = t.app.settingsItems().find((m) => m.label.startsWith('Text size'));
   item.onSelect(ctx);
   const sizes = t.stack.top();
   assert.equal(sizes.title, 'Text size');
@@ -299,4 +301,67 @@ test('streaming text moves the view in steps, not a line at a time', async () =>
   }
   assert.ok(firsts.size <= Math.ceil(80 / Math.ceil(t.app.rows / 3)) + 1, `${firsts.size} distinct positions over 40 streamed lines`);
   t.app.stop();
+});
+
+test('scroll direction can be reversed in Settings', async () => {
+  const t = setup();
+  t.server.history = Array.from({ length: 40 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: `message ${i} ` + 'words '.repeat(30) }));
+  t.app.start();
+  await tick(10);
+  t.stack.clearToBase();
+  await t.app.open('s1');
+  t.paint();
+  const bottom = t.app.first;
+  const ctx = { stack: t.stack, actions: {} };
+  const scroll = t.app.settingsItems().find((m) => m.label.startsWith('Scroll'));
+  assert.equal(scroll.label, 'Scroll: natural');
+  scroll.onSelect(ctx);
+  assert.equal(t.app.settingsItems().find((m) => m.label.startsWith('Scroll')).label, 'Scroll: reversed');
+  await t.input('scroll-down'); // reversed: down goes back in history
+  assert.equal(t.app.first, bottom - 3);
+  t.app.stop();
+});
+
+test('sessions from several PCs are merged, newest first, labelled by PC', async () => {
+  const saved = servers;
+  servers = [{ name: 'mule', url: 'http://pc:3456', token: 't' }, { name: 'mule (WSL)', url: 'http://pc:3457', token: 'u' }];
+  try {
+    const t = setup();
+    t.app.start();
+    await tick(10);
+    const menu = t.stack.top();
+    const labels = menu.items.map((i) => i.label);
+    assert.equal(labels[0], '+ New session');
+    assert.equal(labels.filter((l) => l.includes(' · mule')).length, 2, labels.join(' | '));
+    assert.ok(labels.some((l) => l.endsWith(' · mule (WSL)')), labels.join(' | '));
+    t.app.stop();
+  } finally {
+    servers = saved;
+  }
+});
+
+test('an evencc://add link adds the PC, its voice proxy and its terminal', () => {
+  const store = new Map();
+  const set = (key) => ({ value: undefined, set(v) { store.set(key, v); return v; } });
+  const connections = [];
+  const load = loader({
+    'native/settings-store': { getStringSetting: (k, d) => store.get(k) ?? d, setStringSetting: (k, v) => store.set(k, v) },
+    'apps/terminal/connections': { loadConnections: () => connections.slice(), saveConnections: (c) => { connections.splice(0, connections.length, ...c); } },
+    'ui/dashboard-settings': { voiceProviderSetting: set('voice.provider'), whisperServerApiKeySetting: set('voice.whisperServerApiKey'), whisperServerUrlSetting: set('voice.whisperServerUrl') },
+  });
+  const { addFromLink, loadServers } = load('apps/claude-code/servers');
+  const r = addFromLink('evencc://add?url=http%3A%2F%2F192.168.1.85%3A3456&token=tok&name=mule&stt=1&terminal=g2mirror%3A%2F%2Ftok%40192.168.1.85');
+  assert.equal(r.server.name, 'mule');
+  assert.equal(JSON.stringify(loadServers()), JSON.stringify([{ name: 'mule', url: 'http://192.168.1.85:3456', token: 'tok' }]));
+  assert.equal(store.get('voice.provider'), 'whisper-server');
+  assert.equal(store.get('voice.whisperServerUrl'), 'http://192.168.1.85:3456/api/stt/v1');
+  assert.equal(store.get('voice.whisperServerApiKey'), 'tok');
+  assert.equal(connections.length, 1);
+  assert.equal(connections[0].url, 'g2mirror://tok@192.168.1.85');
+  // scanning again updates rather than duplicates
+  addFromLink('evencc://add?url=http%3A%2F%2F192.168.1.85%3A3456&token=new&name=mule&terminal=g2mirror%3A%2F%2Fnew%40192.168.1.85');
+  assert.equal(loadServers().length, 1);
+  assert.equal(loadServers()[0].token, 'new');
+  assert.equal(connections.length, 1);
+  assert.equal(addFromLink('evencc://add?url=ftp%3A%2F%2Fx&token=t'), null);
 });

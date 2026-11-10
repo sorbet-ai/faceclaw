@@ -24,6 +24,13 @@ export function registerShareIntentHandler(): void {
 }
 
 async function handleShareIntent(intent: android.content.Intent): Promise<void> {
+  if (intent.getAction() === android.content.Intent.ACTION_VIEW) {
+    const data = intent.getDataString();
+    if (data && /^evencc:/i.test(data)) {
+      await addEvenCcServer(data);
+      return;
+    }
+  }
   const text = readPlainTextShare(intent);
   if (text === null) {
     return;
@@ -91,4 +98,22 @@ function readTextUri(uri: android.net.Uri): string | null {
 
 function limitSharedText(text: string): string {
   return text.length <= MAX_SHARED_TEXT_CHARS ? text : text.slice(0, MAX_SHARED_TEXT_CHARS);
+}
+
+/** evencc://add links from even-cc's setup page (see apps/claude-code/servers.ts). */
+async function addEvenCcServer(link: string): Promise<void> {
+  const { addFromLink } = await import("../apps/claude-code/servers");
+  const result = addFromLink(link);
+  const activity = Application.android.foregroundActivity ?? Application.android.startActivity;
+  const say = (text: string) => {
+    if (activity) android.widget.Toast.makeText(activity, text, android.widget.Toast.LENGTH_LONG).show();
+  };
+  if (!result) {
+    say("That even-cc link is incomplete; scan the QR code even-cc prints now.");
+    return;
+  }
+  const extras = [result.speech ? "voice" : "", result.terminal ? "terminal" : ""].filter(Boolean).join(" and ");
+  say(`Added ${result.server.name} to Claude Code${extras ? ` (with ${extras})` : ""}.`);
+  const { dashboardController } = await import("../g2/dashboard-controller");
+  await dashboardController.openClaudeCode();
 }

@@ -104,6 +104,13 @@
 				<category android:name="android.intent.category.DEFAULT" />
 				<data android:mimeType="text/plain" />
 			</intent-filter>
+			<!-- even-cc's setup page opens evencc://add?... to add a PC to Claude Code -->
+			<intent-filter>
+				<action android:name="android.intent.action.VIEW" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<category android:name="android.intent.category.BROWSABLE" />
+				<data android:scheme="evencc" />
+			</intent-filter>
 		</activity>
 		<activity android:name="com.tns.ErrorReportActivity"/>
 		<service

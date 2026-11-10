@@ -15,7 +15,7 @@ import { getDefaultSmallFont } from "../../graphics/ui-fonts";
 import { truncateText, wrapText } from "../../graphics/textwrap";
 import { getStringSetting, setStringSetting } from "../../native/settings-store";
 import { asrModelState, isAsrModelReady, onAsrModelStateChanged, startAsrModelDownload, type AsrModelId } from "../../native/asr-model";
-import { ConfigSettingString, textSettingMenuItem, voiceProviderSetting } from "../../ui/dashboard-settings";
+import { voiceProviderSetting } from "../../ui/dashboard-settings";
 import type { InputEvent } from "../../ui/gestures";
 import type { Layer, LayerContext, LayerStack, PaintBelow } from "../../ui/layers";
 import { MenuLayer, type MenuItem } from "../../ui/menu";
@@ -25,7 +25,7 @@ import { createInProcessWindow, type InProcessAppOptions, type InProcessWindow }
 import { shell } from "../../ui/shell/shell";
 import { VoiceDraft } from "../ai-chat/voice-draft";
 import * as api from "./api";
-import { DEFAULT_SERVER, DEFAULT_TOKEN } from "./core/defaults";
+import { loadServers, removeServer, type EvenCcServer } from "./servers";
 import { apply, emptyConversation, fromHistory, statusLeft, type Conversation } from "./core/model";
 import { layout, type Line, type Style } from "./core/layout";
 
@@ -41,31 +41,13 @@ export function flatMenu(title: string, items: MenuItem[]): MenuLayer {
     footer: gestureHints([[GESTURE_SHORT_THEN_LONG_PRESS, "system menu"]]) });
 }
 
-export const serverSetting = new ConfigSettingString({
-  id: "claude-code-server",
-  label: "Server",
-  storageKey: "claudeCode.server",
-  defaultValue: DEFAULT_SERVER,
-  editorTitle: "even-cc address (e.g. http://192.168.1.85:3456)",
-  glassesEditTitle: "Edit even-cc address",
-  formatValue: (value) => value || "(not set)",
-  description: "The even-cc server on your computer.",
-});
-
-export const tokenSetting = new ConfigSettingString({
-  id: "claude-code-token",
-  label: "Token",
-  storageKey: "claudeCode.token",
-  defaultValue: DEFAULT_TOKEN,
-  editorTitle: "even-cc pairing token",
-  glassesEditTitle: "Edit even-cc token",
-  formatValue: (value) => (value ? `${value.slice(0, 4)}...` : "(not set)"),
-  description: "The token in even-cc's config.json.",
-});
 
 const FONT_SIZES = [12, 14, 16, 18, 20];
 const FONT_KEY = "claudeCode.fontSize";
 const TOOL_OUTPUT_KEY = "claudeCode.toolOutput";
+const SCROLL_KEY = "claudeCode.scroll"; // "natural" | "reversed"
+
+type Session = api.SessionInfo & { server: EvenCcServer };
 const SPINNER = ["·", "✢", "✳", "✶", "✻", "✽"];
 const SCROLL_LINES = 3;
 
@@ -163,7 +145,11 @@ export class ClaudeCodeApp implements Layer {
   connected = false;
   sessionId = "";
   title = "";
-  sessions: api.SessionInfo[] = [];
+  sessions: Session[] = [];
+  /** The PC the open session lives on. */
+  server: EvenCcServer | null = null;
+  /** PCs that didn't answer the last session refresh. */
+  offline: string[] = [];
   note = "";
   grid: Grid;
   cols = 80;
@@ -185,7 +171,11 @@ export class ClaudeCodeApp implements Layer {
   }
 
   get cfg(): api.ServerConfig {
-    return { base: serverSetting.get().trim().replace(/\/+$/, ""), token: tokenSetting.get().trim() };
+    return { base: this.server?.url ?? "", token: this.server?.token ?? "" };
+  }
+
+  reversedScroll(): boolean {
+    return getStringSetting(SCROLL_KEY, "natural") === "reversed";
   }
 
   fontSize(): number {
@@ -252,12 +242,14 @@ export class ClaudeCodeApp implements Layer {
       this.laidOutFor = "";
       this.render();
     }
-    try {
-      await this.refreshSessions();
-    } catch (e) {
-      this.fail(e);
+    if (!loadServers().length) {
+      this.conv = emptyConversation();
+      this.conv.blocks.push({ kind: "meta", text: "No PCs yet. Run even-cc on your PC and scan the QR code it prints with the phone camera." });
+      this.laidOutFor = "";
+      this.render();
       return;
     }
+    await this.refreshSessions();
     if (opening) {
       this.conv = emptyConversation();
       this.conv.blocks.push({ kind: "meta", text: "Pick a session (tap: menu > Sessions)." });
@@ -282,22 +274,38 @@ export class ClaudeCodeApp implements Layer {
 
   // ── session ─────────────────────────────────────────────
 
-  async refreshSessions(): Promise<api.SessionInfo[]> {
-    this.sessions = await api.listSessions(this.cfg);
-    return this.sessions;
+  /** Sessions from every PC, newest first; PCs that don't answer go to offline. */
+  async refreshSessions(): Promise<Session[]> {
+    const servers = loadServers();
+    const results = await Promise.allSettled(servers.map((server) =>
+      api.listSessions({ base: server.url, token: server.token }).then((list) => list.map((s) => ({ ...s, server })))));
+    const all: Session[] = [];
+    this.offline = [];
+    results.forEach((r, i) => {
+      if (r.status === "fulfilled") all.push(...r.value);
+      else {
+        this.offline.push(servers[i].name);
+        console.warn(`claude-code: ${servers[i].name} unreachable: ${r.reason}`);
+      }
+    });
+    all.sort((a, b) => (Date.parse(b.timestamp) || 0) - (Date.parse(a.timestamp) || 0));
+    this.sessions = all;
+    return all;
   }
 
-  async open(sessionId?: string) {
+  async open(sessionId?: string, server?: EvenCcServer) {
     this.stopFollow();
     this.closePrompt();
     if (!sessionId) {
       const list = await this.refreshSessions();
       if (!list.length) {
-        this.newSession();
+        this.newSession(server ?? loadServers()[0] ?? null);
         return;
       }
       sessionId = list[0].id;
+      server = list[0].server;
     }
+    this.server = server ?? this.sessions.find((s) => s.id === sessionId)?.server ?? this.server;
     this.sessionId = sessionId;
     this.title = this.sessions.find((s) => s.id === sessionId)?.title ?? "";
     this.conv = fromHistory(await api.history(this.cfg, sessionId));
@@ -320,9 +328,10 @@ export class ClaudeCodeApp implements Layer {
     });
   }
 
-  newSession() {
+  newSession(server: EvenCcServer | null) {
     this.stopFollow();
     this.closePrompt();
+    this.server = server;
     this.sessionId = "";
     this.title = "new session";
     this.conv = emptyConversation();
@@ -594,10 +603,10 @@ export class ClaudeCodeApp implements Layer {
   handleInput(event: InputEvent): void {
     switch (event.type) {
       case "scroll-up": case "swipe-up":
-        this.scrollBy(-SCROLL_LINES);
+        this.scrollBy(this.reversedScroll() ? SCROLL_LINES : -SCROLL_LINES);
         return;
       case "scroll-down": case "swipe-down":
-        this.scrollBy(SCROLL_LINES);
+        this.scrollBy(this.reversedScroll() ? -SCROLL_LINES : SCROLL_LINES);
         return;
       case "long-press":
         this.startTalking();
@@ -627,53 +636,92 @@ export class ClaudeCodeApp implements Layer {
     }
     items.push(
       { label: "Sessions", onSelect: () => { void this.showSessions(); } },
-      { label: "New session", onSelect: (ctx) => { ctx.stack.clearToBase(); this.newSession(); } },
-      { label: `Text size: ${this.fontSize()}`, onSelect: (ctx) => {
-        const current = this.fontSize();
-        ctx.stack.push(flatMenu("Text size", FONT_SIZES.map((n) => ({
-          label: `${n === current ? "✓ " : ""}${n} px`,
-          onSelect: (pick: LayerContext) => {
-            setStringSetting(FONT_KEY, String(n));
-            this.laidOutFor = "";
-            pick.stack.clearToBase();
-            this.render();
-          },
-        }))));
-      } },
-      { label: `Tool output: ${this.toolOutput() ? "on" : "off"}`, onSelect: (ctx) => {
-        setStringSetting(TOOL_OUTPUT_KEY, this.toolOutput() ? "off" : "on");
-        this.laidOutFor = "";
-        ctx.stack.clearToBase();
-      } },
-      { label: "Reconnect", onSelect: (ctx) => {
-        ctx.stack.clearToBase();
-        void this.open(this.sessionId || undefined).catch((e) => this.fail(e));
-      } },
-      textSettingMenuItem(serverSetting),
-      textSettingMenuItem(tokenSetting),
+      { label: "New session", onSelect: (ctx) => this.pickNewSession(ctx) },
+      { label: "Settings", onSelect: (ctx) => ctx.stack.push(flatMenu("Settings", this.settingsItems())) },
       { label: "Close Claude Code", onSelect: (ctx) => { ctx.stack.clearToBase(); shell.closeWindow(APP_ID); } },
     );
     return items;
   }
 
+  /** New session on the one PC, or a choice of PCs. */
+  private pickNewSession(ctx: LayerContext) {
+    const servers = loadServers();
+    if (servers.length <= 1) {
+      ctx.stack.clearToBase();
+      this.newSession(servers[0] ?? null);
+      return;
+    }
+    ctx.stack.push(flatMenu("New session on", servers.map((server) => ({
+      label: server.name,
+      onSelect: (pick: LayerContext) => { pick.stack.clearToBase(); this.newSession(server); },
+    }))));
+  }
+
+  settingsItems(): MenuItem[] {
+    const current = this.fontSize();
+    return [
+      { label: `Text size: ${current}`, onSelect: (ctx) => ctx.stack.push(flatMenu("Text size", FONT_SIZES.map((n) => ({
+        label: `${n === current ? "✓ " : ""}${n} px`,
+        onSelect: (pick: LayerContext) => {
+          setStringSetting(FONT_KEY, String(n));
+          this.laidOutFor = "";
+          pick.stack.clearToBase();
+          this.render();
+        },
+      })))) },
+      { label: `Scroll: ${this.reversedScroll() ? "reversed" : "natural"}`, onSelect: (ctx) => {
+        setStringSetting(SCROLL_KEY, this.reversedScroll() ? "natural" : "reversed");
+        ctx.stack.clearToBase();
+        this.flash(`scroll ${this.reversedScroll() ? "reversed" : "natural"}`);
+      } },
+      { label: `Tool output: ${this.toolOutput() ? "on" : "off"}`, onSelect: (ctx) => {
+        setStringSetting(TOOL_OUTPUT_KEY, this.toolOutput() ? "off" : "on");
+        this.laidOutFor = "";
+        ctx.stack.clearToBase();
+        this.render();
+      } },
+      { label: "PCs", onSelect: (ctx) => ctx.stack.push(flatMenu("PCs (add one: scan even-cc's QR)", this.serverItems())) },
+      { label: "Reconnect", onSelect: (ctx) => {
+        ctx.stack.clearToBase();
+        void this.open(this.sessionId || undefined, this.server ?? undefined).catch((e) => this.fail(e));
+      } },
+    ];
+  }
+
+  private serverItems(): MenuItem[] {
+    const servers = loadServers();
+    if (!servers.length) return [{ label: "(none yet)", disabled: true, onSelect: () => {} }];
+    return servers.map((server) => ({
+      label: `${server.name}${this.offline.includes(server.name) ? " · offline" : ""}`,
+      description: server.url,
+      onSelect: (ctx: LayerContext) => ctx.stack.push(flatMenu(server.name, [
+        { label: `Remove ${server.name}`, onSelect: (pick: LayerContext) => {
+          removeServer(server.url);
+          pick.stack.clearToBase();
+          this.flash(`removed ${server.name}`);
+        } },
+      ])),
+    }));
+  }
+
   private sessionItems(): MenuItem[] {
-    const items: MenuItem[] = [{
-      label: "+ New session",
-      onSelect: (ctx: LayerContext) => { ctx.stack.clearToBase(); this.newSession(); },
-    }];
+    const several = loadServers().length > 1;
+    const items: MenuItem[] = [{ label: "+ New session", onSelect: (ctx: LayerContext) => this.pickNewSession(ctx) }];
+    for (const name of this.offline) items.push({ label: `${name}: offline (is even-cc running?)`, disabled: true, onSelect: () => {} });
     for (const s of this.sessions.slice(0, 40)) {
       const folder = s.cwd.split(/[\\/]/).filter(Boolean).pop() ?? "";
       items.push({
-        label: `${s.id === this.sessionId ? "✓ " : ""}${s.title || s.id.slice(0, 8)} · ${ago(s.timestamp)}${folder ? " · " + folder : ""}`,
+        label: `${s.id === this.sessionId ? "✓ " : ""}${s.title || s.id.slice(0, 8)} · ${ago(s.timestamp)}${folder ? " · " + folder : ""}${several ? " · " + s.server.name : ""}`,
         description: s.cwd,
         onSelect: (ctx: LayerContext) => {
           ctx.stack.clearToBase();
-          void this.open(s.id).catch((e) => this.fail(e));
+          void this.open(s.id, s.server).catch((e) => this.fail(e));
         },
       });
     }
     return items;
   }
+
 }
 
 /** A permission prompt or question, floating over the conversation. */
