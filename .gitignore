@@ -77,3 +77,8 @@ apple-watch/Local.xcconfig
 App_Resources/iOS/watchapp/
 xcuserdata/
 app/apps/claude-code/core/defaults.ts
+dist/
+build-ps.log
+build-release.log
+wear-build.log
+wear-release.log
