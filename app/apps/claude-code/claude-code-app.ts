@@ -841,8 +841,12 @@ class PromptLayer implements Layer {
 
 /** Seconds a finished voice prompt waits before it sends itself. */
 const SEND_COUNTDOWN = 2;
-/** Stereo depth of the voice box: well in front of the conversation (Faceclaw's menus use 4). */
-const DRAFT_DEPTH = 8;
+/*
+ * No stereo depth for our layers: a layer at a nearer depth goes to the
+ * glasses as a cached image, and after a few of those the left lens started
+ * rejecting every cache command (connection loop) until its firmware was
+ * reinstalled. The box stands out by dimming the conversation instead.
+ */
 
 /**
  * A finished voice prompt floating in front of everything, sending itself
@@ -850,8 +854,7 @@ const DRAFT_DEPTH = 8;
  */
 class DraftLayer implements Layer {
   readonly paintOverBase = true;
-  readonly dimUnderneath = 0.35;
-  readonly depth = DRAFT_DEPTH;
+  readonly dimUnderneath = 0.3;
   private left = SEND_COUNTDOWN;
   private timer: ReturnType<typeof setInterval> | null = null;
   private done = false;
