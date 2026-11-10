@@ -398,10 +398,13 @@ export class ClaudeCodeApp implements Layer {
       void this.answer(this.prompt, { label: "answered", act: () => api.answerQuestion(cfg, sid, text) });
       return;
     }
-    const layer = new DraftLayer(this, text);
-    this.window.stack.push(layer);
+    this.pendingDraft = text;
+    this.window.stack.push(new DraftLayer(this, text));
     this.render();
   }
+
+  /** A finished voice prompt waiting for tap (send) or double tap (drop). */
+  pendingDraft = "";
 
   async sendPrompt(text: string) {
     this.follow = true;
@@ -499,6 +502,9 @@ export class ClaudeCodeApp implements Layer {
     if (this.draft.active) {
       const t = this.draft.text || this.draft.status || "Listening...";
       input = [{ text: "❯ ", style: "promptMark" }, { text: tail(t, this.cols - 4), style: this.draft.text ? "prompt" : "dim" }];
+    } else if (this.pendingDraft) {
+      const hint = "  tap: send · 2x tap: drop";
+      input = [{ text: "❯ ", style: "promptMark" }, { text: tail(this.pendingDraft, this.cols - 4 - hint.length), style: "prompt" }, { text: hint, style: "dim" }];
     } else if (this.voiceNote || this.draft.status) {
       // why the last hold did nothing (no microphone, no speech, model download)
       input = [{ text: "❯ ", style: "promptMark" }, { text: this.voiceNote || this.draft.status, style: "err" }];
@@ -675,47 +681,39 @@ class PromptLayer implements Layer {
 }
 
 /** A finished voice prompt waiting for a tap (send) or double tap (drop). */
+/**
+ * A finished voice prompt, shown in the input line itself (no popup): this
+ * invisible layer only takes the tap (send) and double tap (drop), which the
+ * hold-to-talk window would otherwise turn into its menu and leaving.
+ */
 class DraftLayer implements Layer {
   readonly paintOverBase = true;
-  readonly dimUnderneath = 0.6;
 
-  constructor(private readonly app: ClaudeCodeApp, private readonly text: string) {}
+  constructor(private readonly app: ClaudeCodeApp, readonly text: string) {}
 
-  paint(ctx: LayerContext, paintBelow: PaintBelow): GrayImage {
-    const image = paintBelow();
-    const { width, height } = ctx.stack.getBaseSize();
-    const font = getDefaultSmallFont();
-    const step = font.lineHeight + 4;
-    const boxW = width - 48;
-    const inner = boxW - 28;
-    const lines = wrapText(font, this.text, inner).slice(-8);
-    const boxH = 20 + step * (lines.length + 2);
-    const bx = 24;
-    const by = Math.max(4, height - boxH - this.app.inputTop() - 8);
-    image.fillRect(bx, by, boxW, boxH, 0);
-    image.drawRect(bx, by, boxW, boxH, 200);
-    let y = by + 10;
-    for (const line of lines) {
-      font.drawText(image, bx + 14, y, line, 240);
-      y += step;
-    }
-    font.drawText(image, bx + 14, y + step - 4, "tap: send · 2x tap: drop · hold: say it again", 130);
-    return image;
+  paint(_ctx: LayerContext, paintBelow: PaintBelow): GrayImage {
+    return paintBelow();
   }
 
   handleInput(event: InputEvent, ctx: LayerContext): void {
     switch (event.type) {
       case "click":
         removeLayer(ctx.stack, this);
+        this.app.pendingDraft = "";
         void this.app.sendPrompt(this.text);
         return;
       case "double-click":
         removeLayer(ctx.stack, this);
+        this.app.pendingDraft = "";
         this.app.flash("dropped");
         return;
       case "long-press":
         removeLayer(ctx.stack, this);
+        this.app.pendingDraft = "";
         this.app.startTalking();
+        return;
+      case "scroll-up": case "swipe-up": case "scroll-down": case "swipe-down":
+        this.app.handleInput(event);
         return;
     }
   }
