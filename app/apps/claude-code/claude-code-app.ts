@@ -178,8 +178,8 @@ export class ClaudeCodeApp implements Layer {
   }
 
   fontSize(): number {
-    const n = Number(getStringSetting(FONT_KEY, "12"));
-    return FONT_SIZES.includes(n) ? n : 12;
+    const n = Number(getStringSetting(FONT_KEY, "14"));
+    return FONT_SIZES.includes(n) ? n : 14;
   }
 
   toolOutput(): boolean {
@@ -227,7 +227,34 @@ export class ClaudeCodeApp implements Layer {
         this.render();
       }
     }, 250);
-    void this.open().catch((e) => this.fail(e));
+    void this.showSessions(true);
+  }
+
+  /**
+   * The session list: "New session" first, then the sessions newest first.
+   * It is the app's opening screen; the menu's Sessions shows it again.
+   */
+  async showSessions(opening = false) {
+    if (opening) {
+      this.conv = emptyConversation();
+      this.conv.blocks.push({ kind: "meta", text: "Loading your sessions..." });
+      this.laidOutFor = "";
+      this.render();
+    }
+    try {
+      await this.refreshSessions();
+    } catch (e) {
+      this.fail(e);
+      return;
+    }
+    if (opening) {
+      this.conv = emptyConversation();
+      this.conv.blocks.push({ kind: "meta", text: "Pick a session (tap: menu > Sessions)." });
+      this.laidOutFor = "";
+    }
+    this.window.stack.clearToBase();
+    this.window.stack.push(new WindowMenuLayer("Claude Code sessions", this.sessionItems(), true));
+    this.render();
   }
 
   stop() {
@@ -566,7 +593,7 @@ export class ClaudeCodeApp implements Layer {
       } });
     }
     items.push(
-      { label: "Sessions", onSelect: (ctx) => ctx.stack.push(new WindowMenuLayer("Sessions", this.sessionItems(), true)) },
+      { label: "Sessions", onSelect: () => { void this.showSessions(); } },
       { label: "New session", onSelect: (ctx) => { ctx.stack.clearToBase(); this.newSession(); } },
       { label: `Text size: ${this.fontSize()}`, onSelect: (ctx) => {
         const i = FONT_SIZES.indexOf(this.fontSize());
@@ -590,15 +617,22 @@ export class ClaudeCodeApp implements Layer {
   }
 
   private sessionItems(): MenuItem[] {
-    if (!this.sessions.length) return [{ label: "(no sessions yet)", disabled: true, onSelect: () => {} }];
-    return this.sessions.slice(0, 40).map((s) => ({
-      label: `${s.id === this.sessionId ? "✓ " : ""}${s.title || s.id.slice(0, 8)}`,
-      description: `${s.cwd} · ${ago(s.timestamp)}`,
-      onSelect: (ctx: LayerContext) => {
-        ctx.stack.clearToBase();
-        void this.open(s.id).catch((e) => this.fail(e));
-      },
-    }));
+    const items: MenuItem[] = [{
+      label: "+ New session",
+      onSelect: (ctx: LayerContext) => { ctx.stack.clearToBase(); this.newSession(); },
+    }];
+    for (const s of this.sessions.slice(0, 40)) {
+      const folder = s.cwd.split(/[\\/]/).filter(Boolean).pop() ?? "";
+      items.push({
+        label: `${s.id === this.sessionId ? "✓ " : ""}${s.title || s.id.slice(0, 8)} · ${ago(s.timestamp)}${folder ? " · " + folder : ""}`,
+        description: s.cwd,
+        onSelect: (ctx: LayerContext) => {
+          ctx.stack.clearToBase();
+          void this.open(s.id).catch((e) => this.fail(e));
+        },
+      });
+    }
+    return items;
   }
 }
 

@@ -141,10 +141,23 @@ function writePng(name, image) {
   fs.writeFileSync(path.join(out, name), Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]));
 }
 
+test('opens on the session list, New session first', async () => {
+  const t = setup();
+  t.app.start();
+  await tick(10);
+  const menu = t.stack.top();
+  assert.equal(menu.title, 'Claude Code sessions');
+  assert.equal(menu.items[0].label, '+ New session');
+  assert.match(menu.items[1].label, /^even-cc · .* · even-cc$/);
+  t.app.stop();
+});
+
 test('opens the latest session and paints it like Claude Code on the full panel', async () => {
   const t = setup();
   t.app.start();
   await tick(10);
+  t.stack.clearToBase();
+  await t.app.open('s1');
   assert.equal(t.app.sessionId, 's1');
   t.server.emit({ type: 'tool_start', name: 'Bash', toolId: 'x1' });
   t.server.emit({ type: 'tool_end', name: 'Bash', toolId: 'x1', summary: 'Bash: go test ./internal/server', detail: { input: {}, output: 'ok  even-cc/internal/server 2.4s' } });
@@ -152,7 +165,7 @@ test('opens the latest session and paints it like Claude Code on the full panel'
   const image = t.paint();
   assert.equal(image.width, 640);
   assert.equal(image.height, 480);
-  assert.ok(t.app.cols >= 100, `cols ${t.app.cols}`);
+  assert.ok(t.app.cols >= 75, `cols ${t.app.cols}`);
   writePng('claude-code-view.png', image);
   let lit = 0;
   for (const v of image.pixels) if (v > 100) lit++;
@@ -164,6 +177,8 @@ test('a permission prompt floats up; slide picks, tap answers, and it goes away'
   const t = setup();
   t.app.start();
   await tick(10);
+  t.stack.clearToBase();
+  await t.app.open('s1');
   t.server.emit({ type: 'permission_request', toolName: 'Bash', description: 'Run the tests', detail: 'go test ./...' });
   await tick();
   const blocks = t.app.conv.blocks.map((b) => b.kind);
@@ -182,6 +197,8 @@ test('hold to talk shows the words live; release gives a draft; tap sends, doubl
   const t = setup();
   t.app.start();
   await tick(10);
+  t.stack.clearToBase();
+  await t.app.open('s1');
   await t.input('long-press');
   await tick();
   t.say('add a retry', false);
@@ -212,6 +229,8 @@ test('a question can be answered by voice', async () => {
   const t = setup();
   t.app.start();
   await tick(10);
+  t.stack.clearToBase();
+  await t.app.open('s1');
   t.server.emit({ type: 'user_question', questions: [{ question: 'Which database?', options: [{ label: 'Postgres' }, { label: 'SQLite' }] }] });
   await tick();
   assert.ok(t.app.conv.pendingQuestion, 'pending question');
@@ -230,6 +249,8 @@ test('ring scroll moves through history and the menu offers sessions', async () 
   t.server.history = Array.from({ length: 40 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: `message ${i} ` + 'words '.repeat(30) }));
   t.app.start();
   await tick(10);
+  t.stack.clearToBase();
+  await t.app.open('s1');
   t.paint();
   const bottom = t.app.first;
   await t.input('scroll-up');
