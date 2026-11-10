@@ -710,17 +710,18 @@ export class ClaudeCodeApp implements Layer {
     }
     if (this.pendingBlock()) items.push({ label: "Answer prompt", onSelect: (ctx) => { ctx.stack.clearToBase(); this.syncPrompt(true); } });
     if (!this.follow) items.push({ label: "Go to latest", onSelect: (ctx) => { this.goLive(); ctx.stack.clearToBase(); } });
+    items.push(
+      { label: "Sessions", onSelect: () => { void this.showSessions(); } },
+      { label: "Settings", onSelect: (ctx) => ctx.stack.push(flatMenu("Settings", this.settingsItems())) },
+    );
+    // never first: a tap opens the menu and a second tap picks the first item
     if (this.busy() && this.sessionId) {
       items.push({ label: "Interrupt", onSelect: (ctx) => {
         ctx.stack.clearToBase();
         void api.interrupt(this.cfg, this.sessionId).then(() => this.flash("interrupted"), (e) => this.fail(e));
       } });
     }
-    items.push(
-      { label: "Sessions", onSelect: () => { void this.showSessions(); } },
-      { label: "Settings", onSelect: (ctx) => ctx.stack.push(flatMenu("Settings", this.settingsItems())) },
-      { label: "Close Claude Code", onSelect: (ctx) => { ctx.stack.clearToBase(); shell.closeWindow(APP_ID); } },
-    );
+    items.push({ label: "Close Claude Code", onSelect: (ctx) => { ctx.stack.clearToBase(); shell.closeWindow(APP_ID); } });
     return items;
   }
 
@@ -923,12 +924,8 @@ function historySig(items: { role: string; text: string }[]): string {
 
 /** Seconds a finished voice prompt waits before it sends itself. */
 const SEND_COUNTDOWN = 2;
-/*
- * No stereo depth for our layers: a layer at a nearer depth goes to the
- * glasses as a cached image, and after a few of those the left lens started
- * rejecting every cache command (connection loop) until its firmware was
- * reinstalled. The box stands out by dimming the conversation instead.
- */
+/** Stereo depth of the voice box: well in front of the conversation (Faceclaw's menus use 4). */
+const DRAFT_DEPTH = 8;
 
 /**
  * A finished voice prompt floating in front of everything, sending itself
@@ -936,7 +933,8 @@ const SEND_COUNTDOWN = 2;
  */
 class DraftLayer implements Layer {
   readonly paintOverBase = true;
-  readonly dimUnderneath = 0.3;
+  readonly dimUnderneath = 0.35;
+  readonly depth = DRAFT_DEPTH;
   private left = SEND_COUNTDOWN;
   private timer: ReturnType<typeof setInterval> | null = null;
   private done = false;

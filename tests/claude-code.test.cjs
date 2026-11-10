@@ -219,7 +219,7 @@ test('hold to talk shows the words live; release floats a draft that sends after
   await t.input('long-press-release');
   await tick(1700);
   assert.equal(t.stack.layers.length, 2, 'draft layer up');
-  assert.equal(t.stack.top().depth, undefined, 'no stereo depth (it broke the left lens cache)');
+  assert.equal(t.stack.top().depth, 8, 'floats in front');
   writePng('claude-code-draft.png', t.paint());
   assert.equal(t.server.calls.filter((c) => c[0] === 'prompt').length, 0, 'not sent yet');
   await tick(3200);
