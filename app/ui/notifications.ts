@@ -218,11 +218,13 @@ export class NotificationsListLayer implements Layer {
     if (!notifications.length) return;
 
     if (event.type === "scroll-up") {
-      this.selectedKey = notifications[Math.max(0, selectedIndex - 1)]!.key;
+      // wraps: up from the newest lands on Clear all at the bottom
+      this.selectedKey = selectedIndex === 0 ? CLEAR_ALL_KEY : notifications[selectedIndex - 1]!.key;
       return;
     }
     if (event.type === "scroll-down") {
-      this.selectedKey = selectedIndex + 1 >= notifications.length ? CLEAR_ALL_KEY : notifications[selectedIndex + 1]!.key;
+      this.selectedKey = selectedIndex === notifications.length ? notifications[0]!.key
+        : selectedIndex + 1 >= notifications.length ? CLEAR_ALL_KEY : notifications[selectedIndex + 1]!.key;
       return;
     }
     if (event.type === "click" && selectedIndex === notifications.length) {
