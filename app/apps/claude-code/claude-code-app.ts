@@ -606,6 +606,8 @@ export class ClaudeCodeApp implements Layer {
 class PromptLayer implements Layer {
   readonly paintOverBase = true;
   readonly dimUnderneath = 0.45;
+  /** Stereo depth, nearer than the conversation (Faceclaw's own menus float at 4). */
+  readonly depth = 4;
   choice = 0;
 
   constructor(
