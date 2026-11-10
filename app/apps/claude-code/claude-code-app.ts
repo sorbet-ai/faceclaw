@@ -651,6 +651,7 @@ export class ClaudeCodeApp implements Layer {
       } },
       textSettingMenuItem(serverSetting),
       textSettingMenuItem(tokenSetting),
+      { label: "Close Claude Code", onSelect: (ctx) => { ctx.stack.clearToBase(); shell.closeWindow(APP_ID); } },
     );
     return items;
   }

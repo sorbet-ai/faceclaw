@@ -97,7 +97,7 @@ function setup() {
     'ui/menu': { MenuLayer: class { constructor(title, items) { this.title = title; this.items = items; } } },
     'ui/gestures': { GESTURE_SHORT_THEN_LONG_PRESS: 'tap-hold', gestureHints: () => '' },
     'ui/shell/in-process-window': { createInProcessWindow: (o) => { windowOptions = o; return null; } },
-    'ui/shell/shell': { shell: { prepareChatVoiceCapture: async () => true, yieldFocusToSidebar() {} } },
+    'ui/shell/shell': { shell: { prepareChatVoiceCapture: async () => true, yieldFocusToSidebar() {}, closeWindow() {} } },
     'native/voice-control': { voiceControlBridge: voice },
     'ui/shell/voice-activity': { voiceActivity: { setActive() {} } },
     'apps/claude-code/api': server.api,
