@@ -18,8 +18,9 @@ import { asrModelState, isAsrModelReady, onAsrModelStateChanged, startAsrModelDo
 import { ConfigSettingString, textSettingMenuItem, voiceProviderSetting } from "../../ui/dashboard-settings";
 import type { InputEvent } from "../../ui/gestures";
 import type { Layer, LayerContext, LayerStack, PaintBelow } from "../../ui/layers";
-import type { MenuItem } from "../../ui/menu";
-import { WindowMenuLayer } from "../../ui/window-menu";
+import { MenuLayer, type MenuItem } from "../../ui/menu";
+import { WINDOW_MENU_LAYOUT } from "../../ui/window-menu";
+import { GESTURE_SHORT_THEN_LONG_PRESS, gestureHints } from "../../ui/gestures";
 import { createInProcessWindow, type InProcessAppOptions, type InProcessWindow } from "../../ui/shell/in-process-window";
 import { shell } from "../../ui/shell/shell";
 import { VoiceDraft } from "../ai-chat/voice-draft";
@@ -29,6 +30,16 @@ import { apply, emptyConversation, fromHistory, statusLeft, type Conversation } 
 import { layout, type Line, type Style } from "./core/layout";
 
 export const APP_ID = "claude-code";
+
+/**
+ * Menus drawn in the window's own plane. A nearer stereo depth (Faceclaw's
+ * menus use 4) goes to the glasses as a cached image, and in this full-panel
+ * window those stopped updating after the first change.
+ */
+export function flatMenu(title: string, items: MenuItem[]): MenuLayer {
+  return new MenuLayer(title, items, { ...WINDOW_MENU_LAYOUT, depth: 0,
+    footer: gestureHints([[GESTURE_SHORT_THEN_LONG_PRESS, "system menu"]]) });
+}
 
 export const serverSetting = new ConfigSettingString({
   id: "claude-code-server",
@@ -253,7 +264,7 @@ export class ClaudeCodeApp implements Layer {
       this.laidOutFor = "";
     }
     this.window.stack.clearToBase();
-    this.window.stack.push(new WindowMenuLayer("Claude Code sessions", this.sessionItems(), true));
+    this.window.stack.push(flatMenu("Claude Code sessions", this.sessionItems()));
     this.render();
   }
 
@@ -640,8 +651,6 @@ export class ClaudeCodeApp implements Layer {
 class PromptLayer implements Layer {
   readonly paintOverBase = true;
   readonly dimUnderneath = 0.3;
-  /** Stereo depth, nearer than the conversation (Faceclaw's own menus float at 4). */
-  readonly depth = 4;
   choice = 0;
 
   constructor(
@@ -790,6 +799,7 @@ export function createClaudeCodeWindow(options: InProcessAppOptions): InProcessW
     setScreenOn: (on) => { if (!on) app.draft.cancel(); },
     setSurfaceVisible: (visible) => { if (!visible) app.draft.cancel(); options.setSurfaceVisible(visible); },
     menuItems: () => app.menuItems(),
+    createMenuLayer: (title, items) => flatMenu(title, items),
     receiveTextInput: (text) => { if (!app.draft.active) void app.sendPrompt(text); },
     onClosed: () => { app.stop(); options.onClosed(); },
   });

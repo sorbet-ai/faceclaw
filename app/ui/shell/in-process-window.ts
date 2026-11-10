@@ -40,6 +40,8 @@ export type InProcessWindowOptions = {
    * has no menu of its own, and tap-then-hold opens the system menu instead.
    */
   menuItems?: () => MenuItem[];
+  /** Builds the window's menu layer (default: WindowMenuLayer). */
+  createMenuLayer?: (title: string, items: MenuItem[]) => Layer;
   /** Dedicated chat gestures: click menu, hold microphone, tap-hold system menu. */
   holdToTalk?: boolean;
   isVoiceCapturing?: () => boolean;
@@ -162,7 +164,7 @@ export function createInProcessWindow(options: InProcessWindowOptions): InProces
       return;
     }
     options.onAppMenuOpened?.();
-    stack.push(new WindowMenuLayer(options.title, items, options.holdToTalk));
+    stack.push(options.createMenuLayer?.(options.title, items) ?? new WindowMenuLayer(options.title, items, options.holdToTalk));
   };
 
   const window: ShellWindow = {
