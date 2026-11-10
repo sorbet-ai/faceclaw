@@ -988,6 +988,8 @@ function historySig(items: { role: string; text: string }[]): string {
 
 /** Seconds a finished voice prompt waits before it sends itself. */
 const SEND_COUNTDOWN = 2;
+/** How long "sending in 0" stays up before the box goes and the prompt sends. */
+const ZERO_SHOWN_MS = 400;
 /** Stereo depth of the voice box: well in front of the conversation (Faceclaw's menus use 4). */
 const DRAFT_DEPTH = 8;
 
@@ -1000,7 +1002,7 @@ class DraftLayer implements Layer {
   readonly dimUnderneath = 0.35;
   readonly depth = DRAFT_DEPTH;
   private left = SEND_COUNTDOWN;
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private timer: ReturnType<typeof setInterval> | ReturnType<typeof setTimeout> | null = null;
   private done = false;
   private stack: LayerStack | null = null;
 
@@ -1011,18 +1013,18 @@ class DraftLayer implements Layer {
     this.stack = stack;
     this.timer = setInterval(() => {
       this.left--;
-      if (this.left > 0) {
-        this.app.render();
-        return;
-      }
-      this.finish(true);
+      this.app.render();
+      if (this.left > 0) return;
+      // show "0" (empty bar) for a moment, then send
+      if (this.timer) clearInterval(this.timer);
+      this.timer = setTimeout(() => this.finish(true), ZERO_SHOWN_MS);
     }, 1000);
   }
 
   private finish(send: boolean) {
     if (this.done) return;
     this.done = true;
-    if (this.timer) clearInterval(this.timer);
+    if (this.timer) { clearInterval(this.timer); clearTimeout(this.timer); }
     this.timer = null;
     removeLayer(this.stack ?? undefined, this);
     if (send) void this.app.sendPrompt(this.text);
@@ -1031,7 +1033,7 @@ class DraftLayer implements Layer {
   }
 
   onRemoved() {
-    if (this.timer) clearInterval(this.timer);
+    if (this.timer) { clearInterval(this.timer); clearTimeout(this.timer); }
     this.timer = null;
     this.done = true;
   }
