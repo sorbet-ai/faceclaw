@@ -262,3 +262,21 @@ test('ring scroll moves through history and the menu offers sessions', async () 
   assert.ok(labels.includes('Sessions') && labels.includes('New session') && labels.includes('Go to latest'), labels.join(', '));
   t.app.stop();
 });
+
+test('Text size opens a list of sizes and applies the pick', async () => {
+  const t = setup();
+  t.app.start();
+  await tick(10);
+  t.stack.clearToBase();
+  await t.app.open('s1');
+  const ctx = { stack: t.stack, actions: {} };
+  const item = t.app.menuItems().find((m) => m.label.startsWith('Text size'));
+  item.onSelect(ctx);
+  const sizes = t.stack.top();
+  assert.equal(sizes.title, 'Text size');
+  assert.equal(JSON.stringify(sizes.items.map((i) => i.label)), JSON.stringify(['12 px', '✓ 14 px', '16 px', '18 px', '20 px']));
+  sizes.items[3].onSelect(ctx);
+  assert.equal(t.app.fontSize(), 18);
+  assert.equal(t.stack.layers.length, 1);
+  t.app.stop();
+});

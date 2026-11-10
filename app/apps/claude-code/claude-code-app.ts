@@ -237,7 +237,7 @@ export class ClaudeCodeApp implements Layer {
         this.spin++;
         this.render();
       }
-    }, 250);
+    }, 1000); // each redraw competes with ring input for the Bluetooth link
     void this.showSessions(true);
   }
 
@@ -607,10 +607,16 @@ export class ClaudeCodeApp implements Layer {
       { label: "Sessions", onSelect: () => { void this.showSessions(); } },
       { label: "New session", onSelect: (ctx) => { ctx.stack.clearToBase(); this.newSession(); } },
       { label: `Text size: ${this.fontSize()}`, onSelect: (ctx) => {
-        const i = FONT_SIZES.indexOf(this.fontSize());
-        setStringSetting(FONT_KEY, String(FONT_SIZES[(i + 1) % FONT_SIZES.length]));
-        this.laidOutFor = "";
-        ctx.stack.clearToBase();
+        const current = this.fontSize();
+        ctx.stack.push(flatMenu("Text size", FONT_SIZES.map((n) => ({
+          label: `${n === current ? "✓ " : ""}${n} px`,
+          onSelect: (pick: LayerContext) => {
+            setStringSetting(FONT_KEY, String(n));
+            this.laidOutFor = "";
+            pick.stack.clearToBase();
+            this.render();
+          },
+        }))));
       } },
       { label: `Tool output: ${this.toolOutput() ? "on" : "off"}`, onSelect: (ctx) => {
         setStringSetting(TOOL_OUTPUT_KEY, this.toolOutput() ? "off" : "on");
