@@ -100,12 +100,17 @@ export function apply(c: Conversation, ev: Ev): boolean {
       if (c.tool === ev.name) c.tool = "";
       return true;
     }
-    case "permission_request":
+    case "permission_request": {
+      // even-cc re-sends a waiting prompt when the feed reconnects: show it once
+      const last = findLast(c.blocks, (b) => b.kind === "permission");
+      const prev = last >= 0 ? c.blocks[last] : undefined;
+      if (c.pendingPermission && prev?.kind === "permission" && prev.tool === ev.toolName && prev.description === ev.description) return false;
       c.blocks.push({ kind: "permission", tool: ev.toolName, description: ev.description, detail: ev.detail ?? "",
         options: (ev.options ?? []).map((o: { text: string }) => o.text) });
       c.pendingPermission = true;
       c.activity = "waiting";
       return true;
+    }
     case "permission_result": {
       const i = findLast(c.blocks, (b) => b.kind === "permission");
       const verdict = ev.decision === "denied" ? "denied" : ev.decision === "always" ? "always allowed" : "allowed";
@@ -113,12 +118,17 @@ export function apply(c: Conversation, ev: Ev): boolean {
       c.pendingPermission = false;
       return true;
     }
-    case "user_question":
+    case "user_question": {
+      const last = findLast(c.blocks, (b) => b.kind === "question");
+      const prev = last >= 0 ? c.blocks[last] : undefined;
+      const first = (ev.questions ?? [])[0];
+      if (c.pendingQuestion && prev?.kind === "question" && first && prev.question === (first.question || first.header)) return false;
       for (const q of ev.questions ?? [])
         c.blocks.push({ kind: "question", question: q.question || q.header, options: (q.options ?? []).map((o: { label: string }) => o.label) });
       c.pendingQuestion = true;
       c.activity = "waiting";
       return true;
+    }
     case "question_answer": {
       const i = findLast(c.blocks, (b) => b.kind === "question");
       const answers = Object.values(ev.answers ?? {}).join(", ");

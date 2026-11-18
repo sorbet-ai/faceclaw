@@ -68,6 +68,7 @@ function fakeServer() {
         return { sessionId: sid || 'new1' };
       },
       interrupt: async (_c, sid) => { calls.push(['interrupt', sid]); },
+      message: async (_c, sid, text) => { calls.push(['message', sid, text]); },
       follow: (_c, sid, onEvent, onState) => { follower = { sid, onEvent }; setTimeout(() => onState(true)); return () => { follower = null; }; },
     },
   };
@@ -263,6 +264,7 @@ test('a session open elsewhere is read only, refreshes, and forks on demand', as
   assert.equal(t.server.calls.length, 0, 'nothing sent to a held session');
   assert.equal(t.stack.layers.length, 2, 'fork prompt up');
   await t.input('scroll-down');
+  await t.input('scroll-down');
   await t.input('click'); // "Fork and send"
   await tick(10);
   assert.deepEqual(t.server.calls.at(-1), ['fork', 's1', 'carry on']);
@@ -329,6 +331,24 @@ test('closing the session where it is open continues it here, asking first when 
   assert.deepEqual(t.server.calls, [['release', 's1', true], ['prompt', 's1', 'take it from here']]);
   assert.equal(t.app.sessionId, 's1', 'same session, no fork');
   assert.equal(t.app.elsewhere, '');
+  t.app.stop();
+});
+
+test('a prompt to a session open elsewhere can go there as a message', async () => {
+  const t = setup();
+  t.app.start();
+  await tick(10);
+  t.stack.clearToBase();
+  t.server.elsewhere = 'VS Code';
+  t.server.held = 'VS Code';
+  await t.app.open('s1');
+  await t.app.sendPrompt('also check the logs');
+  await t.input('scroll-down');
+  await t.input('click'); // "Message VS Code"
+  await tick(10);
+  assert.deepEqual(t.server.calls, [['message', 's1', 'also check the logs']]);
+  assert.equal(t.app.elsewhere, 'VS Code', 'still read only here');
+  assert.equal(t.app.sessionId, 's1');
   t.app.stop();
 });
 

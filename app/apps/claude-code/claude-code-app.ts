@@ -548,8 +548,12 @@ export class ClaudeCodeApp implements Layer {
     const cfg = this.cfg;
     const where = this.elsewhere;
     const layer = new PromptLayer(this, `fork:${sid}`, `Open in ${where}${this.elsewhereBusy ? " · busy" : ""}`,
-      `Close it there and continue here, or fork: a new session that carries on from this one.\n"${text}"`, [
+      `Close it there and continue here, send it there as a message, or fork a new session that carries on from this one.\n"${text}"`, [
         { label: `Close in ${where} and send`, act: () => this.takeOver(text, false) },
+        { label: `Message ${where}`, act: async () => {
+          await api.message(cfg, sid, text);
+          this.flash(`sent to ${where}`);
+        } },
         { label: "Fork and send", act: async () => {
           const r = await api.sendPrompt(cfg, sid, text, true);
           await this.refreshSessions().catch(() => []);

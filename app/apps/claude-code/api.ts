@@ -94,6 +94,14 @@ export const sendPrompt = (cfg: ServerConfig, sessionId: string, text: string, f
 export const release = (cfg: ServerConfig, sessionId: string, force: boolean) =>
   call(cfg, "/api/release", { sessionId, force });
 
+/**
+ * Sends text into a session open elsewhere (VS Code, a terminal) as a
+ * message from another session: it arrives as a note, not as the user's own
+ * turn, and the session there stays as it is.
+ */
+export const message = (cfg: ServerConfig, sessionId: string, text: string) =>
+  call(cfg, "/api/message", { sessionId, text });
+
 export const interrupt = (cfg: ServerConfig, sessionId: string) =>
   call(cfg, "/api/interrupt", { sessionId, provider: "claude" });
 
